@@ -8,9 +8,10 @@ import * as storage from './storage.js';
 import { Editor } from './editor.js';
 import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
-import { importProjectFile } from './export.js';
+import { importProjectFile, exportProjectById } from './export.js';
+import { showStorageNotice, showStorageNoticeOnce, needsBackup, lastBackup } from './notice.js';
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.2.0';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -51,7 +52,11 @@ async function renderHome() {
       h('div', { class: 'card-name' }, p.name),
       h('div', { class: 'card-meta' }, `${p.pageCount}ページ・${formatDate(p.updatedAt)}`),
       h('div', { class: 'card-meta small' }, p.paperLabel),
+      needsBackup(p)
+        ? h('div', { class: 'card-meta warn' }, lastBackup(p.id) ? `⚠ 未バックアップの変更あり(前回 ${formatDate(lastBackup(p.id))})` : '⚠ まだバックアップしていません')
+        : h('div', { class: 'card-meta ok' }, `✓ バックアップ済み(${formatDate(lastBackup(p.id))})`),
       h('div', { class: 'card-actions' },
+        h('button', { class: 'btn small primary', onclick: async () => { await exportProjectById(p.id); renderHome(); } }, 'バックアップ'),
         h('button', { class: 'btn small', onclick: () => renameProject(p) }, '名前変更'),
         h('button', { class: 'btn small danger', onclick: () => removeProject(p) }, '削除')),
     );
@@ -124,6 +129,9 @@ async function newProjectDialog() {
 
 home.querySelector('#btn-new').addEventListener('click', newProjectDialog);
 home.querySelector('#btn-help').addEventListener('click', () => editor.ui.showHelp());
+home.querySelector('#btn-storage').addEventListener('click', () => showStorageNotice());
+home.querySelector('#notice-more').addEventListener('click', () => showStorageNotice());
+showStorageNoticeOnce();
 
 const fileInput = home.querySelector('#file-import');
 home.querySelector('#btn-import').addEventListener('click', () => fileInput.click());

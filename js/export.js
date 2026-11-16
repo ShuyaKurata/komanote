@@ -3,9 +3,10 @@
 
 import { h, makeCanvas, releaseCanvas, canvasToBlob, downloadBlob, uid } from './util.js';
 import { renderPageTo } from './render.js';
-import { serializeProject, blobKey } from './model.js';
+import { blobKey } from './model.js';
 import * as storage from './storage.js';
 import { showDialog, toast } from './dialog.js';
+import { markBackedUp } from './notice.js';
 
 const enc = new TextEncoder();
 
@@ -209,10 +210,11 @@ export async function deliver(file) {
       { label: 'ダウンロード', value: 'download', primary: true },
     ],
   });
-  if (v === 'download') downloadBlob(file, file.name);
+  if (v === 'download') { downloadBlob(file, file.name); return true; }
   if (v === 'share') {
-    try { await navigator.share({ files: [file], title: file.name }); } catch { /* キャンセル */ }
+    try { await navigator.share({ files: [file], title: file.name }); return true; } catch { return false; /* キャンセル */ }
   }
+  return false;
 }
 
 // ------------------------------------------------------------------
@@ -227,8 +229,13 @@ const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
 
 export async function exportProjectFile(ed) {
   await ed.save();
+  await exportProjectById(ed.project.id);
+}
+
+/** 保存済みの作品を作品ファイルにして渡す(作品一覧の「バックアップ」からも使う) */
+export async function exportProjectById(projectId) {
   toast('作品ファイルを作成中…', 60000);
-  const json = serializeProject(ed.project);
+  const json = await storage.getProject(projectId);
   const layers = {};
   for (const page of json.pages) {
     for (const L of page.layers) {
@@ -239,7 +246,8 @@ export async function exportProjectFile(ed) {
   const data = JSON.stringify({ format: 'komanote', version: 1, exportedAt: Date.now(), project: json, layers });
   const file = new File([data], `${safeName(json.name)}.komanote`, { type: 'application/json' });
   toast('作成しました', 1200);
-  await deliver(file);
+  // 保存先を選んで実行したときだけバックアップ済みとして記録する
+  if (await deliver(file)) markBackedUp(projectId);
 }
 
 /** 作品ファイルを読み込んで、新しい作品として保存する。作品 ID を返す */

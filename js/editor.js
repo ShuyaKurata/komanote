@@ -14,6 +14,7 @@ import { applyTemplate } from './panels.js';
 import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
 import { applyPaint } from './paint-tools.js';
 import { exportDialog, exportProjectFile } from './export.js';
+import { showStorageNotice } from './notice.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -1146,6 +1147,7 @@ export class Editor {
       'toggle-right': () => this.ui.toggleDock('right'),
       'toggle-pages': () => this.ui.toggleDock('pages'),
       help: () => this.ui.showHelp(),
+      'storage-notice': () => showStorageNotice(),
     };
   }
 }

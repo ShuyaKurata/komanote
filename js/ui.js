@@ -6,6 +6,7 @@ import { TOOLS, PROPS } from './tooldefs.js';
 import { BLEND_MODES } from './model.js';
 import { renderPageTo } from './render.js';
 import { showDialog } from './dialog.js';
+import { showStorageNotice } from './notice.js';
 
 /** メニューの定義。'-' は区切り線 */
 export const MENUS = [
@@ -79,7 +80,7 @@ export const MENUS = [
       { label: 'パレットの表示切替', cmd: 'toggle-palettes', key: 'Tab' },
     ],
   },
-  { label: 'ヘルプ', items: [{ label: '操作方法', cmd: 'help' }] },
+  { label: 'ヘルプ', items: [{ label: '操作方法', cmd: 'help' }, { label: 'データの保存について(大切)', cmd: 'storage-notice' }] },
 ];
 
 const SWATCHES = ['#000000', '#404040', '#808080', '#b3b3b3', '#ffffff', '#3b6fd8', '#d83b3b', '#f0c419', '#2fa84f', '#8e44ad'];
@@ -698,7 +699,11 @@ export class UI {
     showDialog({
       title: '操作方法',
       wide: true,
-      body: h('table', { class: 'help-table' }, rows.map(([a, b]) => h('tr', {}, h('th', {}, a), h('td', {}, b)))),
+      body: h('div', {},
+        h('div', { class: 'notice-box' },
+          '⚠ 作品はこの端末のブラウザ内だけに保存されます。大切な作品は「ファイル → 作品ファイル(.komanote)として保存」でバックアップしてください。 ',
+          h('button', { class: 'btn small', onclick: () => showStorageNotice() }, '保存について詳しく')),
+        h('table', { class: 'help-table', style: { marginTop: '10px' } }, rows.map(([a, b]) => h('tr', {}, h('th', {}, a), h('td', {}, b))))),
     });
   }
 }
