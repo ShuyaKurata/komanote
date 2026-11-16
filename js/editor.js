@@ -13,6 +13,7 @@ import { UI } from './ui.js';
 import { applyTemplate } from './panels.js';
 import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
 import { applyPaint } from './paint-tools.js';
+import { exportDialog, exportProjectFile } from './export.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -423,6 +424,8 @@ export class Editor {
       }
     }
     if (this.gesture || this.active) return;
+    // 狭い画面でパレットが重なっているときは、キャンバスに触れたら閉じるだけにする
+    if (this.ui.closeOverlayDocks()) return;
     if ((e.pointerType === 'mouse' && e.button === 1) || this.spaceDown) {
       this.panState = { id: e.pointerId, anchor: { x: p.x, y: p.y } };
       return;
@@ -551,6 +554,7 @@ export class Editor {
         z: e.shiftKey ? 'redo' : 'undo', y: 'redo', s: 'save', d: 'deselect', a: 'select-all', t: 'transform',
         0: 'fit', 1: 'zoom-100', '=': 'zoom-in', '+': 'zoom-in', ';': 'zoom-in', '-': 'zoom-out',
       };
+      if (k === 'e' && e.shiftKey) { e.preventDefault(); this.command('export'); return; }
       if (map[k]) { e.preventDefault(); this.command(map[k]); }
       return;
     }
@@ -953,6 +957,8 @@ export class Editor {
       home: () => this.onExit(),
       save: async () => { await this.save(); toast('保存しました'); },
       rename: () => this.renameProject(),
+      export: () => exportDialog(this),
+      'export-project': () => exportProjectFile(this),
       undo: () => this.undo(),
       redo: () => this.redo(),
       clear: () => this.clearLayer(),

@@ -109,6 +109,7 @@ textarea.input { min-height: 120px; resize: vertical; line-height: 1.6; }
 .qbtn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 34px; border: none; background: none; border-radius: 4px; }
 .qbtn:hover { background: var(--bg4); }
 .qbtn:disabled { opacity: .3; }
+.qbtn.wide { width: auto; padding: 0 10px; font-size: 12px; border: 1px solid #555; height: 28px; }
 .qsep { width: 1px; height: 22px; background: #555; margin: 0 4px; }
 .chip { border: 1px solid #555; background: var(--bg2); border-radius: 14px; padding: 3px 10px; font-size: 12px; }
 #doc-title { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
