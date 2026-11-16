@@ -597,8 +597,27 @@ export class Editor {
     this.pushHistory({ label, bytes: before.length + after.length, undo: () => apply(before), redo: () => apply(after) });
   }
 
+  /**
+   * スライダーなどで連続して変更するとき用。最初の変更前の状態を覚えておき、
+   * 操作が止まってから 1 回だけ履歴に積む。
+   */
+  live(label, fn) {
+    if (!this._live) this._live = { before: this.snapshotObjects(), label, page: this.page };
+    fn();
+    this.requestRender();
+    clearTimeout(this._liveTimer);
+    this._liveTimer = setTimeout(() => this.flushLive(), 450);
+  }
+  flushLive() {
+    clearTimeout(this._liveTimer);
+    const l = this._live;
+    this._live = null;
+    if (l) this.commitObjects(l.label, l.before, l.page);
+  }
+
   undo() {
     if (this.active) return;
+    this.flushLive();
     this.tool?.beforeUndo?.();
     const e = this.history.undo();
     if (e) { toast(`取り消し: ${e.label}`, 900); this.ui.refreshLayers(); }
@@ -751,6 +770,7 @@ export class Editor {
     try {
       this.tool?.cancel?.();
       this.tool?.deactivate?.();
+      this.flushLive();
       await this.save();
       this.unloadPage(this.page);
       this.pageIndex = i;
