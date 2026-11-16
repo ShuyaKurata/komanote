@@ -3,6 +3,8 @@
 iPad + Apple Pencil で漫画を描くための、プロ向けペイントソフト風の漫画制作アプリです。
 ブラウザ(Safari)で動く Web アプリ(PWA)で、ホーム画面に追加すると全画面のアプリとして使え、オフラインでも動きます。
 
+**公開 URL: https://shuyakurata.github.io/komanote/**
+
 ## なぜ Web アプリ(PWA)なのか
 
 - 開発環境に Xcode が無くてもビルド・動作確認ができる
@@ -57,8 +59,8 @@ python3 -m http.server 8080
 
 Service Worker(オフライン動作)は **HTTPS か localhost** でしか有効にならないため、iPad で常用するには HTTPS で公開します。
 
-1. このリポジトリを GitHub に置き、GitHub Pages を有効にする(ビルド不要、そのまま公開できる)
-2. iPad の Safari で公開 URL を開く
+1. iPad の Safari で https://shuyakurata.github.io/komanote/ を開く
+2. (自分で公開し直す場合)このリポジトリを GitHub に置き、Settings → Pages で `main` ブランチの `/`(ルート)を公開する。ビルドは不要
 3. 共有ボタン →「ホーム画面に追加」
 4. ホーム画面のアイコンから起動すると全画面で動き、以降はオフラインでも起動できる
 

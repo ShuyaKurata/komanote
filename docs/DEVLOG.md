@@ -171,3 +171,21 @@
 - 3D デッサン人形・定規(パース定規・対称定規)
 - 見開きページ・ノンブル(ページ番号)の自動配置
 - 取り消し履歴を保存時にも残す(現状はページを切り替えると履歴が消える)
+
+---
+
+## 2026-11-17 GitHub Pages で公開(`feature/github-pages`, `docs/pages-url`)
+
+### やったこと
+- GitHub に公開リポジトリ `ShuyaKurata/komanote` を作り、`main` と各 `feature/*` ブランチを push
+- `.nojekyll` を追加し、GitHub Pages の Jekyll 処理を止めてファイルをそのまま配信するようにした
+- Pages を `main` ブランチのルートから公開: https://shuyakurata.github.io/komanote/
+- README に公開 URL と iPad での使い方を追記
+
+### 動作確認
+- 公開 URL で新規作成 → エディタが開き、テンプレートのコマが入ることを確認
+- HTTPS で配信されるので Service Worker が `/komanote/` のスコープで登録されることを確認(オフライン起動できる状態)
+
+### 判断したこと
+- 無料プランの GitHub Pages は公開リポジトリが必要なので、リポジトリは public にした
+- 以後の更新は「ブランチで作業 → main にマージ → push」で Pages に自動反映される
