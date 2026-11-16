@@ -8,6 +8,7 @@ import * as storage from './storage.js';
 import { Editor } from './editor.js';
 import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
+import { importProjectFile } from './export.js';
 
 const home = document.getElementById('home');
 const editorRoot = document.getElementById('editor');
@@ -120,6 +121,27 @@ async function newProjectDialog() {
 
 home.querySelector('#btn-new').addEventListener('click', newProjectDialog);
 home.querySelector('#btn-help').addEventListener('click', () => editor.ui.showHelp());
+
+const fileInput = home.querySelector('#file-import');
+home.querySelector('#btn-import').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  fileInput.value = '';
+  if (!file) return;
+  try {
+    toast('読み込み中…', 60000);
+    await importProjectFile(file);
+    toast('読み込みました');
+    renderHome();
+  } catch (err) {
+    toast('読み込めませんでした: ' + err.message, 5000);
+  }
+});
+
+// オフラインで使えるように Service Worker を登録(localhost / HTTPS のときのみ有効)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service Worker の登録に失敗', err));
+}
 
 storage.requestPersist();
 renderHome();

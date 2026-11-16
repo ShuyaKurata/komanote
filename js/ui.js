@@ -14,6 +14,9 @@ export const MENUS = [
       { label: '作品一覧に戻る', cmd: 'home' },
       { label: '保存', cmd: 'save', key: '⌘S' },
       { label: '作品名の変更…', cmd: 'rename' },
+      '-',
+      { label: '画像・PDF の書き出し…', cmd: 'export', key: '⇧⌘E' },
+      { label: '作品ファイル(.komanote)として保存', cmd: 'export-project' },
     ],
   },
   {
@@ -99,7 +102,7 @@ export class UI {
       this.drawNavThumb();
       this.refreshCurrentPageThumb();
     }, 350);
-    if (window.innerWidth < 1000) this.root.classList.add('hide-right');
+    if (this.isNarrow()) this.root.classList.add('hide-right', 'hide-left');
   }
 
   refreshAll() {
@@ -175,6 +178,7 @@ export class UI {
     q.append(
       b('home', '作品一覧', 'home'),
       b('save', '保存 (⌘S)', 'save'),
+      h('button', { class: 'qbtn wide', title: '画像・PDF の書き出し', onclick: () => this.ed.command('export') }, '書き出し'),
       h('span', { class: 'qsep' }),
       this.undoBtn, this.redoBtn,
       h('span', { class: 'qsep' }),
@@ -225,6 +229,19 @@ export class UI {
     this.afterLayoutChange();
   }
 
+  isNarrow() { return window.innerWidth < 1000; }
+
+  /** 狭い画面でキャンバスに重なっているパレットを閉じる。閉じたら true */
+  closeOverlayDocks() {
+    if (!this.isNarrow()) return false;
+    const open = !this.root.classList.contains('hide-left') || !this.root.classList.contains('hide-right');
+    if (open) {
+      this.root.classList.add('hide-left', 'hide-right');
+      this.afterLayoutChange();
+    }
+    return open;
+  }
+
   toggleDock(name) {
     this.root.classList.toggle('hide-' + name);
     this.afterLayoutChange();
@@ -242,7 +259,12 @@ export class UI {
     for (const t of TOOLS) {
       const btn = h('button', {
         class: 'tool-btn', title: `${t.label}${t.key ? ` (${t.key.toUpperCase()})` : ''}`,
-        html: icon(t.icon, 22), onclick: () => this.ed.setTool(t.id),
+        html: icon(t.icon, 22),
+        onclick: () => {
+          // 選択中のツールをもう一度押すと、サブツール・ツールプロパティのパレットを開閉する
+          if (this.ed.toolId === t.id) this.toggleDock('left');
+          else this.ed.setTool(t.id);
+        },
       });
       this.toolBtns[t.id] = btn;
       bar.append(btn);
