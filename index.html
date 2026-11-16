@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="コマノート">
+  <meta name="theme-color" content="#2b2b2b">
+  <title>コマノート</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 作品一覧 -->
+  <div id="home" class="screen">
+    <header class="home-head">
+      <div class="logo">コマノート <small>漫画制作アプリ</small></div>
+      <div class="spacer"></div>
+      <button id="btn-help" class="btn ghost">操作方法</button>
+      <button id="btn-new" class="btn primary">＋ 新規作成</button>
+    </header>
+    <main id="project-grid" class="project-grid"></main>
+  </div>
+
+  <!-- エディタ -->
+  <div id="editor" class="screen hidden">
+    <header id="menubar">
+      <nav id="menus"></nav>
+      <div id="quick"></div>
+      <div class="spacer"></div>
+      <span id="doc-title"></span>
+      <span id="status"></span>
+    </header>
+    <div id="workspace">
+      <nav id="toolbar"></nav>
+      <aside id="left-dock" class="dock">
+        <section class="palette">
+          <h3 id="subtool-title" class="pal-title">サブツール</h3>
+          <div id="subtools" class="subtools"></div>
+        </section>
+        <section class="palette grow">
+          <h3 id="toolprop-title" class="pal-title">ツールプロパティ</h3>
+          <div id="toolprops" class="toolprops"></div>
+        </section>
+        <section class="palette">
+          <h3 class="pal-title">カラー</h3>
+          <div id="color" class="color"></div>
+        </section>
+      </aside>
+      <main id="canvas-wrap">
+        <canvas id="view"></canvas>
+        <div id="float-ui"></div>
+      </main>
+      <aside id="right-dock" class="dock">
+        <section class="palette">
+          <h3 class="pal-title">ナビゲーター</h3>
+          <div id="nav" class="nav"></div>
+        </section>
+        <section class="palette grow">
+          <h3 class="pal-title">レイヤー</h3>
+          <div id="layers" class="layers"></div>
+        </section>
+      </aside>
+    </div>
+    <footer id="pages" class="pages"></footer>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
