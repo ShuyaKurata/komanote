@@ -1,12 +1,12 @@
 // オフライン対応の Service Worker
 // 方針: ネットワーク優先。つながらないときだけキャッシュを返す(更新がすぐ反映され、オフラインでも起動できる)
-const CACHE = 'komanote-v2';
+const CACHE = 'komanote-v3';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/editor.js', './js/ui.js', './js/util.js', './js/icons.js', './js/paper.js',
   './js/model.js', './js/storage.js', './js/history.js', './js/brush.js', './js/render.js',
   './js/dialog.js', './js/tooldefs.js', './js/tools.js', './js/geometry.js', './js/panels.js',
-  './js/text.js', './js/text-tools.js', './js/effects.js', './js/paint-tools.js', './js/export.js',
+  './js/text.js', './js/text-tools.js', './js/effects.js', './js/paint-tools.js', './js/export.js', './js/notice.js',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png',
 ];
 

@@ -92,7 +92,17 @@ textarea.input { min-height: 120px; resize: vertical; line-height: 1.6; }
 .card-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-meta { color: var(--text-dim); font-size: 12px; }
 .card-meta.small { font-size: 11px; }
-.card-actions { display: flex; gap: 6px; margin-top: 4px; }
+.card-actions { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.card-meta.warn { color: #f0c419; }
+.card-meta.ok { color: #6fcf8a; }
+.home-notice {
+  display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+  background: #3d3420; color: #f3dfa2; border-bottom: 1px solid #5a4a20; font-size: 13px; line-height: 1.5;
+}
+.home-notice span { flex: 1; }
+.notice-body h4 { margin: 14px 0 6px; font-size: 13px; color: #fff; }
+.notice-body ul, .notice-body ol { margin: 0; padding-left: 22px; line-height: 1.7; color: #ccc; }
+.notice-box { background: #3d3420; color: #f3dfa2; border: 1px solid #5a4a20; border-radius: 4px; padding: 10px 12px; line-height: 1.6; }
 .empty { color: var(--text-dim); }
 
 /* ---------- エディタ全体 ---------- */
