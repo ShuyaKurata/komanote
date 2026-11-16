@@ -10,7 +10,10 @@ import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 import { importProjectFile } from './export.js';
 
+export const APP_VERSION = '1.1.0';
+
 const home = document.getElementById('home');
+home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
 const editorRoot = document.getElementById('editor');
 
 const editor = new Editor(editorRoot, { onExit: () => closeEditor() });

@@ -244,9 +244,49 @@ export function drawItem(ctx, item) {
   ctx.restore();
 }
 
-export function drawItems(ctx, project, page) {
+// 画面表示用の画像キャッシュ。縦書きは 1 文字ずつフォントを設定して描くので重く、
+// 毎フレーム組み直すと iPad では描画が追いつかない。内容が変わったときだけ描き直す。
+const itemCache = new Map();
+
+function itemBounds(item) {
+  const pad = Math.max(item.w, item.h) * (item.shape === 'spike' ? 0.25 : item.shape === 'cloud' ? 0.15 : 0.04)
+    + (item.stroke || 0) * 2 + (item.outline || 0) * 2 + item.size;
+  let x1 = item.x - pad, y1 = item.y - pad, x2 = item.x + item.w + pad, y2 = item.y + item.h + pad;
+  if (item.tail) {
+    x1 = Math.min(x1, item.tail.x - pad); y1 = Math.min(y1, item.tail.y - pad);
+    x2 = Math.max(x2, item.tail.x + pad); y2 = Math.max(y2, item.tail.y + pad);
+  }
+  return { x: Math.floor(x1), y: Math.floor(y1), w: Math.ceil(x2 - x1), h: Math.ceil(y2 - y1) };
+}
+
+function cachedItem(item) {
+  const key = JSON.stringify(item);
+  let c = itemCache.get(item.id);
+  if (c && c.key === key) return c;
+  const b = itemBounds(item);
+  if (b.w * b.h > 6e6) return null; // 大きすぎるものはキャッシュしない
+  const canvas = c?.canvas || makeCanvas(1, 1);
+  canvas.width = Math.max(1, b.w);
+  canvas.height = Math.max(1, b.h);
+  const x = canvas.getContext('2d');
+  x.translate(-b.x, -b.y);
+  drawItem(x, item);
+  c = { key, canvas, b };
+  itemCache.set(item.id, c);
+  return c;
+}
+
+export function drawItems(ctx, project, page, useCache = false) {
   if (!page.showItems) return;
-  for (const it of page.items) drawItem(ctx, it);
+  for (const it of page.items) {
+    const c = useCache ? cachedItem(it) : null;
+    if (c) ctx.drawImage(c.canvas, c.b.x, c.b.y);
+    else drawItem(ctx, it);
+  }
+  if (useCache && itemCache.size > page.items.length + 50) {
+    const ids = new Set(page.items.map((i) => i.id));
+    for (const [id, c] of itemCache) if (!ids.has(id)) { c.canvas.width = 0; itemCache.delete(id); }
+  }
 }
 
 let measureCtx = null;

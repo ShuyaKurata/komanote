@@ -1,7 +1,7 @@
 // エディタ本体: 表示(拡大・回転・反転)、入力(ペン・タッチ・マウス・キーボード)、
 // レイヤー/ページ操作、取り消し、保存をまとめる。
 
-import { clamp, debounce, makeCanvas, releaseCanvas, canvasToBlob, blobToBitmap, isTextInput } from './util.js';
+import { clamp, debounce, makeCanvas, releaseCanvas, canvasToBlob, blobToBitmap, isTextInput, clipRect } from './util.js';
 import { History, rasterEntry } from './history.js';
 import { StrokeEngine } from './brush.js';
 import { renderPage, renderPageTo } from './render.js';
@@ -30,7 +30,8 @@ export class Editor {
     this.onExit = onExit;
     this.wrap = root.querySelector('#canvas-wrap');
     this.canvas = root.querySelector('#view');
-    this.ctx = this.canvas.getContext('2d');
+    this.ctx = this.canvas.getContext('2d', { alpha: false });
+    this.cursorCanvas = root.querySelector('#cursor');
     this.dpr = window.devicePixelRatio || 1;
 
     this.project = null;
@@ -60,7 +61,7 @@ export class Editor {
 
     this.toolImpls = createTools(this);
     this.ui = new UI(this);
-    this.autosave = debounce(() => this.save(), 2500);
+    this.autosave = debounce(() => this.save(), 4000);
     this.bindEvents();
   }
 
@@ -235,7 +236,9 @@ export class Editor {
       .scale(v.flip ? -v.scale : v.scale, v.scale).translate(-P.w / 2, -P.h / 2);
   }
   toPage(sx, sy) {
-    const p = this.matrix().inverse().transformPoint(new DOMPoint(sx, sy));
+    const key = this.viewKey();
+    if (this._invKey !== key) { this._inv = this.matrix().inverse(); this._invKey = key; }
+    const p = this._inv.transformPoint(new DOMPoint(sx, sy));
     return { x: p.x, y: p.y };
   }
   toScreen(x, y) {
@@ -291,6 +294,7 @@ export class Editor {
   }
 
   resize() {
+    this.canvasRect = null;
     const { w, h } = this.viewSize();
     this.dpr = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(w * this.dpr);
@@ -301,6 +305,11 @@ export class Editor {
   // ------------------------------------------------------------------
   // 描画
   // ------------------------------------------------------------------
+  requestCursor() {
+    if (this._craf) return;
+    this._craf = requestAnimationFrame(() => { this._craf = 0; if (this.project) this.drawCursor(); });
+  }
+
   requestRender() {
     if (this._raf || !this.project) return;
     this._raf = requestAnimationFrame(() => { this._raf = 0; this.render(); });
@@ -308,26 +317,130 @@ export class Editor {
 
   render() {
     if (!this.project) return;
-    const ctx = this.ctx, dpr = this.dpr, P = this.project.paper;
+    this.engine?.flush();
+    // 描画中で表示が動いていなければ、変わった部分だけを描き直す
+    if (this.strokeView?.key === this.viewKey() && !this.gesture) { this.renderStrokeDelta(); return; }
+    this.engine?.takeDirty();
+    const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#5a5a5a';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.drawPageInto(ctx, { layerRange: null, background: true, decorations: true });
+    this.drawCursor();
+  }
+
+  viewKey() {
+    const v = this.view;
+    return `${v.tx}|${v.ty}|${v.scale}|${v.rot}|${v.flip}|${this.canvas.width}|${this.canvas.height}`;
+  }
+
+  /** 画面座標(物理ピクセル)への変換を設定してページを描く */
+  drawPageInto(ctx, { layerRange, background, decorations, paper = true }) {
+    const dpr = this.dpr, P = this.project.paper;
+    if (background) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#5a5a5a';
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
     const m = this.matrix();
     ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * m.e, dpr * m.f);
-    const px = 1 / (this.view.scale * dpr);
-    // 用紙の影
-    ctx.fillStyle = 'rgba(0,0,0,.35)';
-    ctx.fillRect(4 * px * dpr, 4 * px * dpr, P.w, P.h);
+    if (background) {
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.fillRect(4 / this.view.scale, 4 / this.view.scale, P.w, P.h);
+    }
     ctx.imageSmoothingEnabled = this.view.scale * dpr < 2;
     renderPage(ctx, this.project, this.page, {
-      guides: this.prefs.showGuides,
+      guides: decorations && this.prefs.showGuides,
       px: 1 / this.view.scale,
+      paper,
+      layerRange,
+      decorations,
+      itemCache: this.view.scale * dpr <= 1.25,
       afterLayer: (c, L) => this.tool?.afterLayer?.(c, L),
     });
     ctx.imageSmoothingEnabled = true;
-    if (this.selection) this.drawSelection(ctx, 1 / this.view.scale);
-    this.tool?.overlay?.(ctx, 1 / this.view.scale);
-    if (this.tool?.showBrushCursor && this.hover && !this.gesture) this.drawBrushCursor(ctx, 1 / this.view.scale);
+    if (decorations) {
+      if (this.selection) this.drawSelection(ctx, 1 / this.view.scale);
+      this.tool?.overlay?.(ctx, 1 / this.view.scale);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  /**
+   * ブラシで描き始めるときに呼ぶ。編集中レイヤーより下と上を画面の大きさで 1 枚ずつ画像にしておき、
+   * 描画中は「下の画像 + 編集中レイヤー + 上の画像」を変わった範囲だけ重ねる。
+   */
+  beginStrokeView(layer) {
+    const W = this.canvas.width, H = this.canvas.height;
+    const sv = this.strokeCanvases ||= { below: makeCanvas(W, H), above: makeCanvas(W, H) };
+    for (const c of [sv.below, sv.above]) if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const i = this.page.layers.indexOf(layer);
+    const b = sv.below.getContext('2d');
+    b.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawPageInto(b, { layerRange: [0, i], background: true, decorations: false });
+    const a = sv.above.getContext('2d');
+    a.setTransform(1, 0, 0, 1, 0, 0);
+    a.clearRect(0, 0, W, H);
+    this.drawPageInto(a, { layerRange: [i + 1, this.page.layers.length], background: false, decorations: true, paper: false });
+    this.strokeView = { key: this.viewKey(), layer };
+    this.clearCursor();
+  }
+
+  endStrokeView() {
+    this.strokeView = null;
+    this.requestRender();
+  }
+
+  renderStrokeDelta() {
+    const d = this.engine.takeDirty();
+    if (!d) return;
+    const { layer } = this.strokeView, sv = this.strokeCanvases, dpr = this.dpr;
+    const m = this.matrix();
+    // ページ上の変更範囲 → 画面上の矩形
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const [px, py] of [[d.x, d.y], [d.x + d.w, d.y], [d.x, d.y + d.h], [d.x + d.w, d.y + d.h]]) {
+      const q = m.transformPoint(new DOMPoint(px, py));
+      x1 = Math.min(x1, q.x); y1 = Math.min(y1, q.y); x2 = Math.max(x2, q.x); y2 = Math.max(y2, q.y);
+    }
+    const W = this.canvas.width, H = this.canvas.height;
+    const sx = Math.max(0, Math.floor(x1 * dpr) - 2), sy = Math.max(0, Math.floor(y1 * dpr) - 2);
+    const sw = Math.min(W, Math.ceil(x2 * dpr) + 2) - sx, sh = Math.min(H, Math.ceil(y2 * dpr) + 2) - sy;
+    if (sw <= 0 || sh <= 0) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.rect(sx, sy, sw, sh);
+    ctx.clip();
+    ctx.drawImage(sv.below, sx, sy, sw, sh, sx, sy, sw, sh);
+    ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * m.e, dpr * m.f);
+    ctx.imageSmoothingEnabled = this.view.scale * dpr < 2;
+    ctx.globalAlpha = layer.opacity;
+    ctx.globalCompositeOperation = layer.blend || 'source-over';
+    const r = clipRect({ x: d.x - 2, y: d.y - 2, w: d.w + 4, h: d.h + 4 }, this.project.paper.w, this.project.paper.h);
+    if (r) ctx.drawImage(layer.canvas, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(sv.above, sx, sy, sw, sh, sx, sy, sw, sh);
+    ctx.restore();
+  }
+
+  // ブラシの丸いカーソルは別のキャンバスに描く(カーソルが動くたびに原稿全体を描き直さないため)
+  clearCursor() {
+    const c = this.cursorCanvas;
+    if (this.cursorDrawn) { c.getContext('2d').clearRect(0, 0, c.width, c.height); this.cursorDrawn = false; }
+  }
+
+  drawCursor() {
+    this.clearCursor();
+    if (!this.tool?.showBrushCursor || !this.hover || this.gesture || this.strokeView) return;
+    const c = this.cursorCanvas;
+    if (c.width !== this.canvas.width || c.height !== this.canvas.height) { c.width = this.canvas.width; c.height = this.canvas.height; }
+    const ctx = c.getContext('2d');
+    const m = this.matrix(), dpr = this.dpr;
+    ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * m.e, dpr * m.f);
+    this.drawBrushCursor(ctx, 1 / this.view.scale);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.cursorDrawn = true;
   }
 
   drawBrushCursor(ctx, px) {
@@ -375,7 +488,7 @@ export class Editor {
     c.addEventListener('pointerup', (e) => this.onUp(e, false));
     c.addEventListener('pointercancel', (e) => this.onUp(e, true));
     c.addEventListener('pointerleave', (e) => {
-      if (e.pointerType !== 'touch' && !this.active) { this.hover = null; this.requestRender(); }
+      if (e.pointerType !== 'touch' && !this.active) { this.hover = null; this.requestCursor(); }
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -394,7 +507,8 @@ export class Editor {
   }
 
   pt(e) {
-    const r = this.canvas.getBoundingClientRect();
+    // getBoundingClientRect はイベントごとに呼ぶと重いので、サイズが変わったときだけ取り直す
+    const r = this.canvasRect ||= this.canvas.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
     const q = this.toPage(sx, sy);
     let pressure = 1;
@@ -453,7 +567,8 @@ export class Editor {
     if (e.pointerType !== 'touch') {
       this.hover = p;
       this.tool?.hover?.(p);
-      if (this.tool?.showBrushCursor || this.tool?.hover) this.requestRender();
+      if (this.tool?.hover) this.requestRender();
+      else if (this.tool?.showBrushCursor) this.requestCursor();
     }
   }
 
@@ -607,16 +722,28 @@ export class Editor {
   pushRaster(label, layer, rect, before, after) {
     layer.dirty = true;
     this.pushHistory(rasterEntry(label, layer, rect, before, after, () => this.changed()));
+    this.compactSoon();
+  }
+
+  /** 取り消し履歴のキャンバスを、描いていないときに ImageData へ変換する */
+  compactSoon() {
+    clearTimeout(this._compactTimer);
+    this._compactTimer = setTimeout(() => {
+      if (this.active) return this.compactSoon();
+      for (const e of this.history.undoStack.concat(this.history.redoStack)) {
+        if (e.compact?.()) return this.compactSoon(); // 1 回に 1 つずつ(長く止まらないように)
+      }
+    }, 700);
   }
 
   /** レイヤー全体を書き換える操作を履歴付きで行う */
   rasterOp(label, layer, fn) {
     const { w, h } = this.project.paper;
     const ctx = layer.canvas.getContext('2d');
-    const before = ctx.getImageData(0, 0, w, h);
+    const copy = () => { const c = makeCanvas(w, h); c.getContext('2d').drawImage(layer.canvas, 0, 0); return c; };
+    const before = copy();
     fn(ctx);
-    const after = ctx.getImageData(0, 0, w, h);
-    this.pushRaster(label, layer, { x: 0, y: 0, w, h }, before, after);
+    this.pushRaster(label, layer, { x: 0, y: 0, w, h }, before, copy());
   }
 
   /** コマ・テキストなどのオブジェクト変更を履歴に積むためのスナップショット */
@@ -907,6 +1034,8 @@ export class Editor {
   async doSave() {
     const project = this.project;
     if (!project) return;
+    // 描いている最中は PNG への変換で引っかかるので、手を離してから保存する
+    if (this.active && !this.closing) { this.autosave(); return; }
     const seq = this.changeSeq;
     if (seq === this.savedSeq) return;
     this.ui.setStatus('保存中…');

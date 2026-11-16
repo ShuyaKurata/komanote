@@ -98,10 +98,11 @@ export class UI {
     this.buildLayers();
     this.buildPages();
     this.scheduleThumbs = debounce(() => {
+      if (this.ed.active) { this.scheduleThumbs(); return; } // 描いている間は更新しない
       this.refreshLayerThumbs();
       this.drawNavThumb();
       this.refreshCurrentPageThumb();
-    }, 350);
+    }, 700);
     if (this.isNarrow()) this.root.classList.add('hide-right', 'hide-left');
   }
 
