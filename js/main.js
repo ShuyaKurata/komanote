@@ -6,6 +6,7 @@ import { PRESETS, DPI_OPTIONS, buildPaper } from './paper.js';
 import { createProject, serializeProject } from './model.js';
 import * as storage from './storage.js';
 import { Editor } from './editor.js';
+import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 
 const home = document.getElementById('home');
@@ -75,9 +76,6 @@ async function removeProject(p) {
   renderHome();
 }
 
-/** 新規作成ダイアログで追加の項目を出すための拡張ポイント */
-export const newProjectHooks = [];
-
 async function newProjectDialog() {
   const name = h('input', { type: 'text', class: 'input', value: '新しい原稿' });
   const preset = h('select', { class: 'select' }, PRESETS.map((p) => h('option', { value: p.id, selected: p.id === 'b5-doujin' }, p.label)));
@@ -85,11 +83,11 @@ async function newProjectDialog() {
   const cw = h('input', { type: 'number', class: 'input', value: 182, min: 50, max: 600 });
   const ch = h('input', { type: 'number', class: 'input', value: 257, min: 50, max: 900 });
   const pages = h('input', { type: 'number', class: 'input', value: 1, min: 1, max: 200 });
+  const tpl = h('select', { class: 'select' }, TEMPLATES.map(([v, l]) => h('option', { value: v, selected: v === '1' }, l)));
   const info = h('p', { class: 'hint' });
   const customRow = h('div', { class: 'field-row' },
     h('label', { class: 'field' }, h('span', {}, '仕上がり幅 (mm)'), cw),
     h('label', { class: 'field' }, h('span', {}, '仕上がり高さ (mm)'), ch));
-  const extras = newProjectHooks.map((hook) => hook.build());
   const update = () => {
     customRow.style.display = preset.value === 'custom' ? '' : 'none';
     dpi.disabled = preset.value === 'webtoon';
@@ -105,7 +103,7 @@ async function newProjectDialog() {
     customRow,
     h('label', { class: 'field' }, h('span', {}, '解像度'), dpi),
     h('label', { class: 'field' }, h('span', {}, 'ページ数'), pages),
-    extras.map((x) => x.el),
+    h('label', { class: 'field' }, h('span', {}, 'コマ枠テンプレート(新しいページにも適用)'), tpl),
     info);
   const ok = await showDialog({
     title: '新規作成', body, wide: true,
@@ -114,7 +112,8 @@ async function newProjectDialog() {
   if (!ok) return;
   const paper = buildPaper(preset.value, +dpi.value, { trimW: cw.value, trimH: ch.value });
   const project = createProject({ name: name.value.trim() || '無題の原稿', paper, pageCount: Math.min(200, Math.max(1, +pages.value || 1)) });
-  newProjectHooks.forEach((hook, i) => hook.apply(project, extras[i]));
+  project.pageTemplate = tpl.value;
+  for (const page of project.pages) applyTemplate(page, paper, tpl.value);
   await storage.putProject(serializeProject(project));
   await openEditor(project);
 }

@@ -13,6 +13,7 @@ export const PROPS = {
   taperIn: { label: '入り', type: 'range', min: 0, max: 1, step: 0.01, pct: true },
   taperOut: { label: '抜き', type: 'range', min: 0, max: 1, step: 0.01, pct: true },
   stabilize: { label: '手ブレ補正', type: 'range', min: 0, max: 20, step: 1 },
+  snap: { label: '角度を水平・垂直・45°に吸着', type: 'check' },
   src: { label: '取得先', type: 'select', options: [['all', '表示色'], ['layer', '編集中のレイヤー']] },
 };
 
@@ -65,6 +66,14 @@ export const TOOLS = [
       { id: 'hard', name: '硬め', kind: 'brush', props: ['size', 'opacity', 'pressure', 'minSize', 'stabilize'], settings: brush({ size: 24, pressure: false, erase: true, stabilize: 0 }) },
       { id: 'fine', name: '細部用', kind: 'brush', props: ['size', 'opacity', 'pressure', 'minSize', 'stabilize'], settings: brush({ size: 6, pressure: true, minSize: 0.4, erase: true, stabilize: 0 }) },
       { id: 'soft', name: 'やわらかめ', kind: 'brush', props: ['size', 'opacity', 'flow'], settings: brush({ size: 100, soft: true, flow: 0.2, erase: true, stabilize: 0, pressure: false }) },
+    ],
+  },
+  {
+    id: 'panel', label: 'コマ枠', icon: 'panel', key: 'k',
+    subtools: [
+      { id: 'split', name: 'コマ枠カット(分割)', kind: 'panel', props: ['snap'], settings: { mode: 'split', snap: true } },
+      { id: 'rect', name: '長方形コマ', kind: 'panel', props: [], settings: { mode: 'rect' } },
+      { id: 'edit', name: 'コマ枠の編集', kind: 'panel', props: [], settings: { mode: 'edit' } },
     ],
   },
 ];

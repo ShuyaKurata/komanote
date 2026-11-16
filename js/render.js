@@ -1,5 +1,8 @@
 // ページの描画(画面表示・サムネイル・書き出しで共通)
 // ctx はあらかじめ「ページ座標 → 出力先」の変換が設定されていること。
+// 重ね順: 白い用紙 → ラスターレイヤー(下から) → コマ外のマスクとコマ枠 → ガイド
+
+import { drawPanels } from './panels.js';
 
 /**
  * @param opts.guides       ガイド(裁ち落とし・仕上がり・基本枠)を描くか
@@ -27,6 +30,7 @@ export function renderPage(ctx, project, page, opts = {}) {
   }
   ctx.restore();
 
+  drawPanels(ctx, project, page);
   if (guides) drawGuides(ctx, project.paper, px);
 }
 
