@@ -1,9 +1,10 @@
 // IndexedDB への保存
 // - projects ストア: 作品の JSON(レイヤーの画素以外)
 // - blobs ストア   : "作品ID/レイヤーID" → PNG Blob
+// - links ストア   : 作品ID → 連動しているローカルファイル { handle, name, lastWrite }
 
 const DB_NAME = 'komanote';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise = null;
 
 function openDb() {
@@ -14,6 +15,7 @@ function openDb() {
       const db = r.result;
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs');
+      if (!db.objectStoreNames.contains('links')) db.createObjectStore('links');
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -51,6 +53,7 @@ export async function putProject(json) {
 
 export async function deleteProject(id) {
   await req((await store('projects', 'readwrite')).delete(id));
+  await deleteLink(id);
   for (const key of await listBlobKeys(id)) await deleteBlob(key);
 }
 
@@ -81,4 +84,20 @@ export async function requestPersist() {
   try {
     if (navigator.storage?.persist) await navigator.storage.persist();
   } catch { /* 無視 */ }
+}
+
+// ---- ローカルファイルとの連動情報 ----
+export async function getLink(projectId) {
+  return req((await store('links')).get(projectId));
+}
+export async function putLink(projectId, link) {
+  return req((await store('links', 'readwrite')).put(link, projectId));
+}
+export async function deleteLink(projectId) {
+  return req((await store('links', 'readwrite')).delete(projectId));
+}
+export async function listLinks() {
+  const s = await store('links');
+  const [keys, vals] = await Promise.all([req(s.getAllKeys()), req(s.getAll())]);
+  return Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
 }

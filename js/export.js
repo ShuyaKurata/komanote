@@ -6,7 +6,7 @@ import { renderPageTo } from './render.js';
 import { blobKey } from './model.js';
 import * as storage from './storage.js';
 import { showDialog, toast } from './dialog.js';
-import { markBackedUp } from './notice.js';
+import { buildProjectFile } from './filelink.js';
 
 const enc = new TextEncoder();
 
@@ -220,34 +220,17 @@ export async function deliver(file) {
 // ------------------------------------------------------------------
 // 作品ファイル(.komanote)
 // ------------------------------------------------------------------
-const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(r.result);
-  r.onerror = () => reject(r.error);
-  r.readAsDataURL(blob);
-});
-
 export async function exportProjectFile(ed) {
   await ed.save();
   await exportProjectById(ed.project.id);
 }
 
-/** 保存済みの作品を作品ファイルにして渡す(作品一覧の「バックアップ」からも使う) */
+/** 保存済みの作品を作品ファイルにして、ダウンロード/共有で渡す(連動に対応していない端末向けの手動保存) */
 export async function exportProjectById(projectId) {
   toast('作品ファイルを作成中…', 60000);
-  const json = await storage.getProject(projectId);
-  const layers = {};
-  for (const page of json.pages) {
-    for (const L of page.layers) {
-      const b = await storage.getBlob(blobKey(json.id, L.id));
-      if (b) layers[L.id] = await blobToDataUrl(b);
-    }
-  }
-  const data = JSON.stringify({ format: 'komanote', version: 1, exportedAt: Date.now(), project: json, layers });
-  const file = new File([data], `${safeName(json.name)}.komanote`, { type: 'application/json' });
+  const file = await buildProjectFile(projectId);
   toast('作成しました', 1200);
-  // 保存先を選んで実行したときだけバックアップ済みとして記録する
-  if (await deliver(file)) markBackedUp(projectId);
+  await deliver(file);
 }
 
 /** 作品ファイルを読み込んで、新しい作品として保存する。作品 ID を返す */

@@ -1,33 +1,11 @@
-// 「データの保存について」の説明と、バックアップ日時の記録
+// 「データの保存について」の説明
 
 import { h } from './util.js';
 import { showDialog } from './dialog.js';
+import { linkSupported } from './filelink.js';
 
-const LS_BACKUP = 'komanote.backups.v1';
 const LS_SEEN = 'komanote.storageNoticeSeen.v1';
 
-function readBackups() {
-  try { return JSON.parse(localStorage.getItem(LS_BACKUP) || '{}'); } catch { return {}; }
-}
-
-/** 作品ファイルを書き出した日時を記録する */
-export function markBackedUp(projectId) {
-  const b = readBackups();
-  b[projectId] = Date.now();
-  try { localStorage.setItem(LS_BACKUP, JSON.stringify(b)); } catch { /* 無視 */ }
-}
-
-export function lastBackup(projectId) {
-  return readBackups()[projectId] || null;
-}
-
-/** バックアップ後に変更があるか(バックアップしたことがなければ true) */
-export function needsBackup(project) {
-  const t = lastBackup(project.id);
-  return !t || project.updatedAt > t + 5000;
-}
-
-/** 端末内の保存領域の状態(わかる範囲で) */
 async function storageInfo() {
   const info = { persisted: null, usage: null, quota: null };
   try { info.persisted = await navigator.storage?.persisted?.(); } catch { /* 無視 */ }
@@ -41,44 +19,52 @@ async function storageInfo() {
 const mb = (n) => `${(n / 1024 / 1024).toFixed(n > 100 * 1024 * 1024 ? 0 : 1)}MB`;
 
 export function storageNoticeBody() {
-  const status = h('p', { class: 'hint' }, '保存領域の状態を確認中…');
+  const supported = linkSupported();
+  const status = h('p', { class: 'hint' });
   storageInfo().then((i) => {
     const parts = [];
-    if (i.usage != null) parts.push(`使用量: ${mb(i.usage)}${i.quota ? ` / 上限の目安 ${mb(i.quota)}` : ''}`);
-    if (i.persisted != null) parts.push(i.persisted ? '消されにくい保存(永続化)が有効です' : '消されにくい保存(永続化)は無効です');
-    status.textContent = parts.join('　') || '';
+    if (i.usage != null) parts.push(`ブラウザ内の使用量: ${mb(i.usage)}${i.quota ? ` / 上限の目安 ${mb(i.quota)}` : ''}`);
+    if (i.persisted != null) parts.push(i.persisted ? '消されにくい保存: 有効' : '消されにくい保存: 無効');
+    status.textContent = parts.join('　');
   });
   return h('div', { class: 'notice-body' },
-    h('div', { class: 'notice-box' },
-      h('strong', {}, '作品はこの端末のブラウザの中だけに保存されています。'),
-      h('br'), 'サーバーやクラウドには送られません。端末を替えたり、ブラウザのデータが消えたりすると作品も消えます。'),
-    h('h4', {}, '作品が消えてしまう主なケース'),
+    h('h4', {}, '自動保存(ブラウザ内)'),
+    h('p', {}, '描いた内容は数秒ごとに、この端末のブラウザの中へ自動保存されます。サーバーやクラウドには送られません。'),
+    h('p', {}, '次のようなときは消えるので、大切な作品はファイルにも保存してください。'),
     h('ul', {},
-      h('li', {}, 'Safari の設定で「履歴と Web サイトデータを消去」したとき'),
-      h('li', {}, 'iPad の空き容量が少なくなり、ブラウザが古いデータを自動で削除したとき'),
+      h('li', {}, 'Safari の「履歴と Web サイトデータを消去」をしたとき'),
+      h('li', {}, '空き容量が少なくなり、ブラウザが古いデータを削除したとき'),
       h('li', {}, 'ホーム画面に追加せず Safari で使っていて、しばらく(目安 7 日)開かなかったとき'),
-      h('li', {}, 'プライベートブラウズで使ったとき(閉じると消えます)'),
-      h('li', {}, 'iPad の故障・初期化・機種変更')),
-    h('h4', {}, 'ちゃんと残すには(バックアップ)'),
-    h('ol', {},
-      h('li', {}, '作品一覧の「バックアップ」、またはエディタの「ファイル → 作品ファイル(.komanote)として保存」を押す'),
-      h('li', {}, '「共有・ファイルに保存」から「ファイル」アプリの iCloud Drive や「この iPad 内」に保存する'),
-      h('li', {}, '戻すときは作品一覧の「作品ファイルを読み込む」から選ぶ')),
-    h('p', {}, '描き進めたら、こまめにバックアップしてください。バックアップ後に変更があった作品には、一覧に「未バックアップ」と表示されます。'),
-    h('p', { class: 'hint' }, '※ PNG・PDF の書き出しは完成原稿の画像です。続きを描くためのレイヤーやコマ・テキストの情報は、作品ファイル(.komanote)にしか残りません。'),
-    h('p', { class: 'hint' }, '※ ホーム画面に追加して使うと、Safari で開くより消されにくくなります。'),
+      h('li', {}, 'プライベートブラウズで使ったとき、端末の故障・初期化・機種変更')),
+
+    h('h4', {}, 'ファイルと連動して保存 🔗'),
+    h('p', {}, '作品をローカルの作品ファイル(.komanote)と結びつけると、編集するたびにそのファイルも自動で上書きされます。'
+      + '作品一覧で 🔗 マークが付いている作品が、ファイルと連動している作品です。'),
+    h('ul', {},
+      h('li', {}, '始め方: 作品一覧で作品の ⓘ →「ファイルと連動して保存」、またはエディタの「ファイル → ファイルと連動して保存」'),
+      h('li', {}, '作品ファイルから読み込んだ作品は、そのファイルと自動で連動します'),
+      h('li', {}, 'ブラウザを開き直したあとは、作品を開くときに書き込みの許可を聞かれることがあります')),
+    h('div', { class: 'notice-box' + (supported ? ' ok' : '') },
+      supported
+        ? 'この端末のブラウザは「ファイルと連動して保存」に対応しています。'
+        : 'この端末のブラウザ(iPad・iPhone の Safari など)は、Web アプリからファイルを自動で上書きする機能に対応していません。'
+          + 'そのため連動はできず、🔗 マークも付きません。代わりに、作品の ⓘ →「ファイルに書き出す」→「共有・ファイルに保存」で、'
+          + '「ファイル」アプリ(iCloud Drive など)に手動で保存してください。'),
+
+    h('h4', {}, '作品ファイルから戻す'),
+    h('p', {}, '作品一覧の「作品ファイルを読み込む」から .komanote ファイルを選ぶと、作品として読み込まれます。'),
+    h('p', { class: 'hint' }, '※ PNG・PDF の書き出しは完成原稿の画像です。続きを描くためのレイヤー・コマ・テキストは作品ファイルにしか残りません。'),
     status,
   );
 }
 
 export function showStorageNotice() {
-  return showDialog({ title: 'データの保存について(大切)', body: storageNoticeBody(), wide: true, buttons: [{ label: 'わかった', value: true, primary: true }] });
+  return showDialog({ title: 'データの保存について', body: storageNoticeBody(), wide: true, buttons: [{ label: '閉じる', value: true, primary: true }] });
 }
 
 /** 初めて起動したときに 1 回だけ表示する */
 export async function showStorageNoticeOnce() {
   if (localStorage.getItem(LS_SEEN)) return;
-  await showStorageNotice();
   try { localStorage.setItem(LS_SEEN, '1'); } catch { /* 無視 */ }
+  await showStorageNotice();
 }
-
