@@ -25,6 +25,12 @@ function grainCanvas() {
   return (grainSrc = c);
 }
 
+function copyRegion(src, r) {
+  const c = makeCanvas(r.w, r.h);
+  c.getContext('2d').drawImage(src, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+  return c;
+}
+
 export class StrokeEngine {
   constructor(w, h) {
     this.w = w;
@@ -60,6 +66,8 @@ export class StrokeEngine {
     this.bctx.clearRect(0, 0, this.w, this.h);
     this.pts = [];
     this.bbox = null;
+    this.pending = null;
+    this.dirty = null;
     this.total = 0;
     this.nextStamp = 0;
     this.smooth = null;
@@ -104,7 +112,26 @@ export class StrokeEngine {
     if (last) this.total += Math.hypot(x - last.x, y - last.y);
     this.pts.push({ x, y, p, d: this.total });
     const r = this.stampSegment(this.pts.length - 1, false);
-    if (r) this.recompose(r);
+    if (r) {
+      // レイヤーへの合成は flush() でフレームごとに 1 回だけ行う(Pencil は 1 秒に 240 回も点が来るため)
+      this.pending = rectUnion(this.pending, r);
+      this.dirty = rectUnion(this.dirty, r);
+    }
+  }
+
+  /** たまっている変更範囲をレイヤーに合成する */
+  flush() {
+    if (!this.pending) return;
+    const r = this.pending;
+    this.pending = null;
+    this.recompose(r);
+  }
+
+  /** 前回から画面上で更新が必要になった範囲(ページ座標)を取り出す */
+  takeDirty() {
+    const d = this.dirty;
+    this.dirty = null;
+    return d;
   }
 
   radius(p, d, taperOut) {
@@ -216,20 +243,22 @@ export class StrokeEngine {
       for (let i = 0; i < this.pts.length; i++) this.stampSegment(i, true);
     }
     this.active = false;
+    this.pending = null;
     const r = clipRect(this.bbox, this.w, this.h);
     if (!r) return null;
     this.recompose(r);
-    return {
-      rect: r,
-      before: this.backup.getContext('2d').getImageData(r.x, r.y, r.w, r.h),
-      after: this.ctx.getImageData(r.x, r.y, r.w, r.h),
-    };
+    this.dirty = rectUnion(this.dirty, r);
+    // 取り消し用のデータは getImageData(GPU からの読み戻しで iPad では重い)を使わず、
+    // 小さなキャンバスへのコピーで取っておく。ImageData への変換は手が空いたときに行う(history.js)
+    return { rect: r, before: copyRegion(this.backup, r), after: copyRegion(this.layer.canvas, r) };
   }
 
   /** ストロークを取り消して元に戻す(2 本指ジェスチャーに切り替わったときなど) */
   abort() {
     if (!this.active) return;
     this.active = false;
+    this.pending = null;
+    this.dirty = rectUnion(this.dirty, this.bbox);
     const r = clipRect(this.bbox, this.w, this.h);
     if (!r) return;
     this.ctx.clearRect(r.x, r.y, r.w, r.h);

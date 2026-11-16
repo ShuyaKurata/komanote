@@ -10,16 +10,26 @@ import { drawItems } from './text.js';
  * @param opts.includeDraft 下書きレイヤーを含めるか(書き出しでは false)
  * @param opts.px           画面上の 1px がページ座標でいくつか(ガイド線の太さ用)
  * @param opts.afterLayer   (ctx, layer) 各レイヤーを描いた直後に呼ばれる(変形中のプレビュー用)
+ * @param opts.paper        白い用紙を塗るか
+ * @param opts.layerRange   [開始, 終了) 描くレイヤーの範囲(描画中の高速表示で、編集中レイヤーの上下を分けて描くため)
+ * @param opts.decorations  コマ枠・テキストを描くか
+ * @param opts.itemCache    テキスト・フキダシを画像キャッシュで描くか(画面表示用)
  */
 export function renderPage(ctx, project, page, opts = {}) {
   const { w, h } = project.paper;
-  const { guides = false, includeDraft = true, px = 1, afterLayer = null } = opts;
+  const {
+    guides = false, includeDraft = true, px = 1, afterLayer = null,
+    paper = true, layerRange = null, decorations = true, itemCache = false,
+  } = opts;
 
   ctx.save();
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, w, h);
-
-  for (const L of page.layers) {
+  if (paper) {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+  }
+  const [from, to] = layerRange || [0, page.layers.length];
+  for (let i = from; i < to; i++) {
+    const L = page.layers[i];
     if (!L.visible || !L.canvas) continue;
     if (L.draft && !includeDraft) continue;
     ctx.globalAlpha = L.opacity;
@@ -31,8 +41,10 @@ export function renderPage(ctx, project, page, opts = {}) {
   }
   ctx.restore();
 
-  drawPanels(ctx, project, page);
-  drawItems(ctx, project, page);
+  if (decorations) {
+    drawPanels(ctx, project, page);
+    drawItems(ctx, project, page, itemCache);
+  }
   if (guides) drawGuides(ctx, project.paper, px);
 }
 

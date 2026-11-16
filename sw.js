@@ -1,6 +1,6 @@
 // オフライン対応の Service Worker
 // 方針: ネットワーク優先。つながらないときだけキャッシュを返す(更新がすぐ反映され、オフラインでも起動できる)
-const CACHE = 'komanote-v1';
+const CACHE = 'komanote-v2';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/editor.js', './js/ui.js', './js/util.js', './js/icons.js', './js/paper.js',
@@ -25,7 +25,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // no-cache: ブラウザの HTTP キャッシュに古いファイルが残っていても、必ずサーバーに更新を確認する
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));

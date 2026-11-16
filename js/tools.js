@@ -46,6 +46,7 @@ function brushTool(ed) {
       const s = ed.settings();
       const erase = s.erase || ed.color.transparent;
       ed.engine.begin(layer, { ...s, erase }, ed.currentColor(), ed.selectionPath());
+      ed.beginStrokeView(layer);
       ed.engine.addPoint(p.x, p.y, p.pressure);
       drawing = true;
       ed.requestRender();
@@ -59,14 +60,15 @@ function brushTool(ed) {
       if (!drawing) return;
       drawing = false;
       const res = ed.engine.end();
+      ed.render(); // 最後の部分を差分描画で反映してから通常表示に戻す
+      ed.endStrokeView();
       if (res) ed.pushRaster('描画', layer, res.rect, res.before, res.after);
-      ed.requestRender();
     },
     cancel() {
       if (!drawing) return;
       drawing = false;
       ed.engine.abort();
-      ed.requestRender();
+      ed.endStrokeView();
     },
   };
 }
