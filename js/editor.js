@@ -11,6 +11,8 @@ import { createTools } from './tools.js';
 import * as storage from './storage.js';
 import { UI } from './ui.js';
 import { applyTemplate } from './panels.js';
+import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
+import { applyPaint } from './paint-tools.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -81,6 +83,8 @@ export class Editor {
   }
 
   async close() {
+    if (this.tool?.active) this.tool.confirm();
+    this.flushLive();
     this.tool?.cancel?.();
     this.tool?.deactivate?.();
     await this.save();
@@ -134,7 +138,10 @@ export class Editor {
   }
   /** 現在のサブツールの設定(初期値 + ユーザー変更) */
   settings(toolId = this.toolId) {
-    const sub = this.subtoolDef(toolId);
+    return this.settingsFor(toolId, this.subtoolDef(toolId).id);
+  }
+  settingsFor(toolId, subId) {
+    const sub = findTool(toolId).subtools.find((x) => x.id === subId);
     const key = `${toolId}/${sub.id}`;
     if (!this.toolSettings[key]) this.toolSettings[key] = {};
     const s = this.toolSettings[key];
@@ -154,6 +161,7 @@ export class Editor {
 
   setTool(id) {
     if (!findTool(id)) return;
+    if (this.tool?.active && this.tool.confirm) this.tool.confirm();
     if (this.active) { this.tool?.cancel?.(); this.active = null; }
     this.tool?.deactivate?.();
     this.toolId = id;
@@ -163,7 +171,35 @@ export class Editor {
     this.canvas.style.cursor = this.tool.cursor || 'default';
     this.saveToolPrefs();
     this.ui.refreshTools();
+    this.ui.refreshFloat();
     this.requestRender();
+  }
+
+  /** 変形のように、一時的にツールを差し替える */
+  enterTempTool(tool) {
+    this.tool?.deactivate?.();
+    this.tool = tool;
+    this.canvas.style.cursor = tool.cursor || 'default';
+    this.ui.refreshToolProps();
+    this.ui.refreshFloat();
+    this.requestRender();
+  }
+  exitTempTool() { this.setTool(this.toolId); }
+
+  setSelection(sel) {
+    this.selection = sel;
+    this.ui.refreshFloat();
+    this.ui.refreshToolProps();
+    this.requestRender();
+  }
+
+  /** 効果線などを描く範囲: 選択範囲 > 点を含むコマ > ページ全体 */
+  regionAt(x, y) {
+    if (this.selection) return { path: this.selection.path, bounds: this.selection.bounds };
+    const pn = [...this.page.panels].reverse().find((p) => pointInPolygon(x, y, p.points));
+    if (pn && this.page.showPanels) return { path: polyToPath(pn.points), bounds: polyBounds(pn.points) };
+    const { w, h } = this.project.paper;
+    return { path: null, bounds: { x: 0, y: 0, w, h } };
   }
   setSubtool(subId) {
     this.currentSub[this.toolId] = subId;
@@ -512,7 +548,7 @@ export class Editor {
     const k = e.key.toLowerCase();
     if (mod) {
       const map = {
-        z: e.shiftKey ? 'redo' : 'undo', y: 'redo', s: 'save', d: 'deselect', a: 'select-all',
+        z: e.shiftKey ? 'redo' : 'undo', y: 'redo', s: 'save', d: 'deselect', a: 'select-all', t: 'transform',
         0: 'fit', 1: 'zoom-100', '=': 'zoom-in', '+': 'zoom-in', ';': 'zoom-in', '-': 'zoom-out',
       };
       if (map[k]) { e.preventDefault(); this.command(map[k]); }
@@ -768,6 +804,7 @@ export class Editor {
     if (i === this.pageIndex || i < 0 || i >= pages.length || this.busy) return;
     this.busy = true;
     try {
+      if (this.tool?.active) this.tool.confirm();
       this.tool?.cancel?.();
       this.tool?.deactivate?.();
       this.flushLive();
@@ -919,13 +956,29 @@ export class Editor {
       undo: () => this.undo(),
       redo: () => this.redo(),
       clear: () => this.clearLayer(),
-      deselect: () => { this.selection = null; this.requestRender(); this.ui.refreshToolProps(); },
+      deselect: () => this.setSelection(null),
       'select-all': () => {
         const { w, h } = this.project.paper, path = new Path2D();
         path.rect(0, 0, w, h);
-        this.selection = { path, bounds: { x: 0, y: 0, w, h } };
-        this.requestRender();
-        this.ui.refreshToolProps();
+        this.setSelection({ path, bounds: { x: 0, y: 0, w, h } });
+      },
+      transform: () => this.toolImpls.transform.start(),
+      'fill-selection': () => {
+        const L = this.editableLayer();
+        if (!L || !this.selection) { if (!this.selection) toast('選択範囲がありません'); return; }
+        applyPaint(this, L, this.selection.bounds, {
+          path: this.selection.path, label: '選択範囲を塗りつぶし',
+          paint: { type: 'color', color: this.color.transparent ? '#000' : this.currentColor(), erase: this.color.transparent },
+        });
+      },
+      'tone-selection': () => {
+        if (!this.selection) { toast('選択範囲がありません'); return; }
+        const t = this.settingsFor('fill', 'tone');
+        const L = this.addLayer({ name: `トーン ${t.lpi}線 ${Math.round(t.density * 100)}%` });
+        applyPaint(this, L, this.selection.bounds, {
+          path: this.selection.path, label: 'トーンを貼る',
+          paint: { type: 'tone', color: '#000000', lpi: t.lpi, density: t.density, angle: t.angle },
+        });
       },
       'layer-add': () => this.addLayer(),
       'layer-add-draft': () => this.addLayer({ draft: true, opacity: 0.6 }),

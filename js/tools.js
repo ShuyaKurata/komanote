@@ -6,6 +6,7 @@ import { makeCanvas, rgbToHex } from './util.js';
 import { renderPage } from './render.js';
 import { panelTool } from './panels.js';
 import { createTextTools } from './text-tools.js';
+import { createPaintTools } from './paint-tools.js';
 
 export function createTools(ed) {
   // 並び順はレイヤーパレット上部の固定行の順にもなる(テキスト → コマ枠)
@@ -15,6 +16,7 @@ export function createTools(ed) {
     brush: brushTool(ed),
     eyedropper: eyedropperTool(ed),
     panel: panelTool(ed),
+    ...createPaintTools(ed),
   };
 }
 
