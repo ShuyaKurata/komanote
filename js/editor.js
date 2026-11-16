@@ -420,8 +420,10 @@ export class Editor {
     ctx.imageSmoothingEnabled = this.view.scale * dpr < 2;
     ctx.globalAlpha = layer.opacity;
     ctx.globalCompositeOperation = layer.blend || 'source-over';
-    const r = clipRect({ x: d.x - 2, y: d.y - 2, w: d.w + 4, h: d.h + 4 }, this.project.paper.w, this.project.paper.h);
-    if (r) ctx.drawImage(layer.canvas, r.x, r.y, r.w, r.h, r.x, r.y, r.w, r.h);
+    // レイヤーの一部分(drawImage の切り出し)ではなく、全体を描いて画面の矩形で切り抜く。
+    // 切り出しだと、縮小表示のときに切り出し範囲が画面の矩形より狭くなったり、縁の補間が通常表示とずれたりして、
+    // 描いている間だけ四角い枠が見えてしまう。GPU は切り抜き範囲しか塗らないので、全体を渡しても重くならない。
+    ctx.drawImage(layer.canvas, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.setTransform(1, 0, 0, 1, 0, 0);

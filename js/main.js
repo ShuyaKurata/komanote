@@ -12,7 +12,7 @@ import { importProjectFile, exportProjectById } from './export.js';
 import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
 import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission } from './filelink.js';
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.3.1';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
