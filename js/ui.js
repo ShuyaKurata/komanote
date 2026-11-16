@@ -17,6 +17,7 @@ export const MENUS = [
       { label: '作品名の変更…', cmd: 'rename' },
       '-',
       { label: '画像・PDF の書き出し…', cmd: 'export', key: '⇧⌘E' },
+      { label: 'Google ドライブで同期… ☁', cmd: 'drive-link' },
       { label: 'ファイルと連動して保存… 🔗', cmd: 'link-file' },
       { label: '作品ファイルを書き出す(手動保存)', cmd: 'export-project' },
     ],
@@ -120,7 +121,7 @@ export class UI {
     this.refreshFloat();
     this.drawNavThumb();
     this.refreshNav();
-    this.setStatus(this.ed.linked ? '保存済み 🔗' : '保存済み');
+    this.setStatus(this.ed.linked ? `保存済み ${this.ed.linkMark()}` : '保存済み');
   }
 
   // ---------------- メニュー ----------------
@@ -219,10 +220,16 @@ export class UI {
     this.$('#doc-title').textContent = `${p.name} — ${this.ed.pageIndex + 1}/${p.pages.length}ページ`;
   }
 
-  setStatus(s) {
+  /** 右上の保存状態。onClick を渡すと押せる表示になる(ログインし直しなど) */
+  setStatus(s, onClick = null) {
     const el = this.$('#status');
+    // 「要ログイン」は、ログインし直すまで他の表示で上書きしない
+    if (this.statusAction && !onClick && !s.startsWith('保存済み')) return;
     el.textContent = s;
     el.dataset.state = s;
+    this.statusAction = onClick;
+    el.classList.toggle('clickable', !!onClick);
+    el.onclick = onClick ? () => onClick() : null;
   }
 
   togglePalettes() {

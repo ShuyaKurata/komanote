@@ -10,9 +10,11 @@ import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 import { importProjectFile, exportProjectById } from './export.js';
 import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
-import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission } from './filelink.js';
+import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission, startDriveLink, openDriveFile, driveNewer, pullFromDrive } from './filelink.js';
+import * as gdrive from './gdrive.js';
+import { driveDialog, ensureDriveAuth } from './drive-ui.js';
 
-export const APP_VERSION = '1.3.1';
+export const APP_VERSION = '1.4.0';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -55,7 +57,10 @@ async function renderHome() {
         p.thumb ? h('img', { src: p.thumb, alt: '' }) : h('div', { class: 'blank' })),
       h('div', { class: 'card-row' },
         h('div', { class: 'card-name' }, p.name),
-        link ? h('button', { class: 'card-mark', title: `ファイル「${link.name}」と連動中`, onclick: info }, '🔗') : null,
+        link ? h('button', {
+          class: 'card-mark', onclick: info,
+          title: link.type === 'drive' ? `Google ドライブ「${link.name}」と同期中` : `ファイル「${link.name}」と連動中`,
+        }, link.type === 'drive' ? '☁' : '🔗') : null,
         h('button', { class: 'card-info', title: '詳細', onclick: info }, 'ⓘ')),
     );
     grid.append(card);
@@ -68,15 +73,17 @@ async function projectInfoDialog(p, link) {
     ['ページ数', `${p.pageCount}ページ`],
     ['用紙', p.paperLabel],
     ['最終更新', formatDate(p.updatedAt)],
-    ['保存先', link
-      ? `ブラウザ内 + ファイル「${link.name}」(🔗 連動中${link.lastWrite ? `・最終書き込み ${formatDate(link.lastWrite)}` : ''})`
-      : 'ブラウザ内のみ'],
+    ['保存先', !link ? 'ブラウザ内のみ'
+      : link.type === 'drive'
+        ? `ブラウザ内 + Google ドライブ「${link.name}」(☁ 同期中${link.lastWrite ? `・最終保存 ${formatDate(link.lastWrite)}` : ''})`
+        : `ブラウザ内 + ファイル「${link.name}」(🔗 連動中${link.lastWrite ? `・最終書き込み ${formatDate(link.lastWrite)}` : ''})`],
   ];
   const buttons = [];
   const act = (label, value, extra = {}) => buttons.push({ label, value, ...extra });
-  if (linkSupported()) {
-    if (link) act('連動を解除', 'unlink');
-    else act('ファイルと連動して保存', 'link');
+  if (link) act(link.type === 'drive' ? '同期を解除' : '連動を解除', 'unlink');
+  else {
+    act('Google ドライブで同期 ☁', 'drive');
+    if (linkSupported()) act('ファイルと連動して保存 🔗', 'link');
   }
   act('ファイルに書き出す', 'export');
   act('名前変更', 'rename');
@@ -96,9 +103,14 @@ async function projectInfoDialog(p, link) {
       const r = await startLink(p.id, p.name);
       toast(r === 'ok' ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
     }
-    if (v === 'unlink') { await stopLink(p.id); toast('連動を解除しました(ファイルはそのまま残ります)'); }
+    if (v === 'unlink') { await stopLink(p.id); toast('解除しました(ファイルはそのまま残ります)'); }
+    if (v === 'drive' && await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。')) {
+      toast('Google ドライブに保存中…', 60000);
+      await startDriveLink(p.id);
+      toast('Google ドライブに保存しました。以後は自動で同期します');
+    }
   } catch (err) {
-    if (err?.name !== 'AbortError') toast('できませんでした: ' + err.message, 4000);
+    if (err?.name !== 'AbortError') toast(err instanceof gdrive.NeedAuth ? 'Google ドライブへの接続が切れました。もう一度お試しください' : 'できませんでした: ' + err.message, 4000);
   }
   renderHome();
 }
@@ -109,9 +121,41 @@ async function openProject(id) {
     const link = await ensureLinkPermission(id);
     if (link?.denied) toast(`ファイル「${link.name}」への書き込みが許可されなかったため、ブラウザ内にだけ保存します`, 4000);
   }
+  await checkDriveNewer(id);
   const json = await storage.getProject(id);
   if (!json) { toast('作品が見つかりません'); return renderHome(); }
   await openEditor(json);
+}
+
+/** ドライブと同期中の作品を開くとき、他の端末で更新されていないか確認する */
+async function checkDriveNewer(id) {
+  const link = await storage.getLink(id);
+  if (link?.type !== 'drive' || !navigator.onLine) return;
+  if (!(await ensureDriveAuth('Google ドライブと同期している作品です。他の端末での変更がないか確認するため、接続します。'))) return;
+  try {
+    const newer = await driveNewer(id);
+    if (!newer) return;
+    const v = await showDialog({
+      title: 'Google ドライブの方が新しい版です',
+      body: `他の端末で ${formatDate(Date.parse(newer.meta.modifiedTime))} に更新されています。ドライブの版を読み込みますか?(この端末の版は置き換わります)`,
+      buttons: [{ label: 'この端末の版を使う', value: false }, { label: 'ドライブの版を読み込む', value: true, primary: true }],
+    });
+    if (v) { toast('ドライブから読み込み中…', 60000); await pullFromDrive(id, importProjectFile); toast('ドライブの版を読み込みました'); }
+  } catch (err) {
+    toast('Google ドライブを確認できませんでした: ' + err.message, 4000);
+  }
+}
+
+async function openFromDrive(f) {
+  try {
+    toast('Google ドライブから読み込み中…', 60000);
+    const { id, existed } = await openDriveFile(f, importProjectFile);
+    toast(existed ? 'この端末にある同じ作品を開きます' : '読み込みました(☁ 同期中)', 1500);
+    await openProject(id);
+  } catch (err) {
+    toast('開けませんでした: ' + err.message, 5000);
+    renderHome();
+  }
 }
 
 async function renameProject(p) {
@@ -174,6 +218,13 @@ async function newProjectDialog() {
 home.querySelector('#btn-new').addEventListener('click', newProjectDialog);
 home.querySelector('#btn-help').addEventListener('click', () => editor.ui.showHelp());
 home.querySelector('#btn-storage').addEventListener('click', () => showStorageNotice());
+home.querySelector('#btn-drive').addEventListener('click', async () => { await driveDialog(openFromDrive); renderHome(); });
+
+// Google のログイン画面からページ移動で戻ってきたとき
+const redirected = gdrive.handleRedirect();
+if (redirected === true) toast('Google ドライブに接続しました');
+if (redirected === false) toast('Google ドライブに接続できませんでした');
+gdrive.preloadGis();
 showStorageNoticeOnce();
 
 const fileInput = home.querySelector('#file-import');
