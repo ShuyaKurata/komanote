@@ -14,6 +14,13 @@ export const PROPS = {
   taperOut: { label: '抜き', type: 'range', min: 0, max: 1, step: 0.01, pct: true },
   stabilize: { label: '手ブレ補正', type: 'range', min: 0, max: 20, step: 1 },
   snap: { label: '角度を水平・垂直・45°に吸着', type: 'check' },
+  font: { label: 'フォント', type: 'select', string: true, options: [['antique', 'アンチック風'], ['mincho', '明朝'], ['gothic', 'ゴシック'], ['maru', '丸ゴシック']] },
+  sizePt: { label: '文字サイズ', type: 'range', min: 4, max: 72, step: 0.5, unit: 'pt' },
+  vertical: { label: '縦書き', type: 'check' },
+  bold: { label: '太字', type: 'check' },
+  lineHeight: { label: '行間', type: 'range', min: 1, max: 2.5, step: 0.05, fmt: (v) => (+v).toFixed(2) },
+  outline: { label: '白フチ', type: 'range', min: 0, max: 30, step: 1, unit: 'px' },
+  strokeMm: { label: '線の太さ', type: 'range', min: 0, max: 2, step: 0.05, fmt: (v) => `${(+v).toFixed(2)}mm` },
   src: { label: '取得先', type: 'select', options: [['all', '表示色'], ['layer', '編集中のレイヤー']] },
 };
 
@@ -27,6 +34,10 @@ export const TOOLS = [
   {
     id: 'hand', label: '手のひら', icon: 'hand', key: 'h',
     subtools: [{ id: 'hand', name: '手のひら', kind: 'hand', props: [], settings: {} }],
+  },
+  {
+    id: 'object', label: '操作(テキスト・フキダシ)', icon: 'object', key: 'o',
+    subtools: [{ id: 'object', name: 'オブジェクト', kind: 'object', props: [], settings: {} }],
   },
   {
     id: 'eyedropper', label: 'スポイト', icon: 'eyedropper', key: 'i',
@@ -74,6 +85,24 @@ export const TOOLS = [
       { id: 'split', name: 'コマ枠カット(分割)', kind: 'panel', props: ['snap'], settings: { mode: 'split', snap: true } },
       { id: 'rect', name: '長方形コマ', kind: 'panel', props: [], settings: { mode: 'rect' } },
       { id: 'edit', name: 'コマ枠の編集', kind: 'panel', props: [], settings: { mode: 'edit' } },
+    ],
+  },
+  {
+    id: 'text', label: 'テキスト', icon: 'text', key: 't',
+    subtools: [{
+      id: 'text', name: 'テキスト', kind: 'text', props: ['font', 'sizePt', 'vertical', 'bold', 'lineHeight', 'outline'],
+      settings: { font: 'antique', sizePt: 9, vertical: true, bold: false, lineHeight: 1.5, outline: 0 },
+    }],
+  },
+  {
+    id: 'balloon', label: 'フキダシ', icon: 'balloon', key: 'f',
+    subtools: [
+      { id: 'ellipse', name: '楕円フキダシ', kind: 'balloon', props: ['strokeMm'], settings: { shape: 'ellipse', strokeMm: 0.35 } },
+      { id: 'round', name: '角丸フキダシ', kind: 'balloon', props: ['strokeMm'], settings: { shape: 'round', strokeMm: 0.35 } },
+      { id: 'rect', name: 'ナレーション(長方形)', kind: 'balloon', props: ['strokeMm'], settings: { shape: 'rect', strokeMm: 0.3 } },
+      { id: 'cloud', name: '思考フキダシ(雲)', kind: 'balloon', props: ['strokeMm'], settings: { shape: 'cloud', strokeMm: 0.3 } },
+      { id: 'spike', name: '叫びフキダシ(トゲ)', kind: 'balloon', props: ['strokeMm'], settings: { shape: 'spike', strokeMm: 0.4 } },
+      { id: 'tail', name: 'しっぽを付ける', kind: 'balloon', props: [], settings: { mode: 'tail' } },
     ],
   },
 ];
