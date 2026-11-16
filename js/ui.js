@@ -82,8 +82,6 @@ export class UI {
     this.root = ed.root;
     this.$ = (s) => this.root.querySelector(s);
     this.hsv = [0, 0, 0];
-    /** レイヤーパレットの上部に出す固定行(テキスト・コマ枠など)を作る関数 */
-    this.extraLayerRows = [];
     this.buildMenus();
     this.buildQuick();
     this.buildToolbar();
@@ -552,7 +550,7 @@ export class UI {
     this.opacityVal.textContent = `${this.opacity.value}%`;
     this.draftChk.checked = !!active.draft;
     this.layerList.innerHTML = '';
-    for (const make of this.extraLayerRows) this.layerList.append(make());
+    for (const t of new Set(Object.values(ed.toolImpls))) if (t.layerRow) this.layerList.append(t.layerRow());
     this.layerThumbs = [];
     for (const L of [...page.layers].reverse()) {
       const thumb = h('canvas', { class: 'layer-thumb', width: 52, height: 40 });

@@ -4,12 +4,14 @@
 
 import { makeCanvas, rgbToHex } from './util.js';
 import { renderPage } from './render.js';
+import { panelTool } from './panels.js';
 
 export function createTools(ed) {
   return {
     hand: handTool(ed),
     brush: brushTool(ed),
     eyedropper: eyedropperTool(ed),
+    panel: panelTool(ed),
   };
 }
 

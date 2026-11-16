@@ -10,6 +10,7 @@ import { TOOLS, findTool } from './tooldefs.js';
 import { createTools } from './tools.js';
 import * as storage from './storage.js';
 import { UI } from './ui.js';
+import { applyTemplate } from './panels.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -589,8 +590,10 @@ export class Editor {
       Object.assign(page, JSON.parse(json));
       this.tool?.objectsRestored?.();
       this.ui.refreshToolProps();
+      this.ui.refreshLayers();
       this.changed();
     };
+    this.ui.refreshLayers();
     this.pushHistory({ label, bytes: before.length + after.length, undo: () => apply(before), redo: () => apply(after) });
   }
 
@@ -765,7 +768,7 @@ export class Editor {
 
   newPageObject() {
     const page = createPage(this.project.paper);
-    this.applyNewPageTemplate?.(page);
+    applyTemplate(page, this.project.paper, this.project.pageTemplate);
     return page;
   }
 
