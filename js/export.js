@@ -234,12 +234,18 @@ export async function exportProjectById(projectId) {
 }
 
 /** 作品ファイルを読み込んで、新しい作品として保存する。作品 ID を返す */
-export async function importProjectFile(file) {
+export async function importProjectFile(file, { replaceId = null } = {}) {
   const data = JSON.parse(await file.text());
   if (data.format !== 'komanote' || !data.project) throw new Error('コマノートの作品ファイルではありません');
   const project = data.project;
-  project.id = uid();
-  project.updatedAt = Date.now();
+  if (replaceId) {
+    // 既存の作品を置き換える(ドライブの新しい版を取り込むとき)。古いレイヤー画像は消す
+    for (const k of await storage.listBlobKeys(replaceId)) await storage.deleteBlob(k);
+    project.id = replaceId;
+  } else {
+    project.id = uid();
+    project.updatedAt = Date.now();
+  }
   for (const [layerId, url] of Object.entries(data.layers || {})) {
     const blob = await (await fetch(url)).blob();
     await storage.putBlob(blobKey(project.id, layerId), blob);

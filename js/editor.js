@@ -15,7 +15,8 @@ import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
 import { applyPaint } from './paint-tools.js';
 import { exportDialog, exportProjectFile } from './export.js';
 import { showStorageNotice } from './notice.js';
-import { linkSupported, writeLinked, startLink } from './filelink.js';
+import { linkSupported, writeLinked, startLink, startDriveLink } from './filelink.js';
+import { ensureDriveAuth } from './drive-ui.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -80,7 +81,8 @@ export class Editor {
     await this.loadPage(this.page);
     this.changeSeq = this.savedSeq = this.fileSeq = 0;
     this.fileWarned = false;
-    this.linked = !!(await storage.getLink(project.id).catch(() => null));
+    const link = await storage.getLink(project.id).catch(() => null);
+    this.linked = link ? (link.type === 'drive' ? 'drive' : 'file') : false;
     this.resize();
     this.fit();
     this.setTool(this.toolId);
@@ -1080,6 +1082,8 @@ export class Editor {
     clearTimeout(this._fileTimer);
     this._fileTimer = setTimeout(() => this.flushFileSync(), 15000);
   }
+  linkMark() { return this.linked === 'drive' ? '☁' : '🔗'; }
+
   async flushFileSync() {
     clearTimeout(this._fileTimer);
     if (!this.linked || !this.project) return;
@@ -1087,13 +1091,52 @@ export class Editor {
     if (this.fileSeq === this.savedSeq) return;
     const seq = this.savedSeq;
     const r = await writeLinked(this.project.id);
-    if (r === 'ok') {
+    if (r === 'ok' || r === 'conflict') {
       this.fileSeq = seq;
-      this.ui.setStatus(this.changeSeq === seq ? '保存済み 🔗' : '未保存');
+      this.ui.setStatus(this.changeSeq === seq ? `保存済み ${this.linkMark()}` : '未保存');
+      if (r === 'conflict') {
+        const link = await storage.getLink(this.project.id);
+        toast(`他の端末で更新されていたため、上書きせずに「${link?.name}」として Google ドライブに保存しました`, 6000);
+      }
+    } else if (r === 'needauth') {
+      // ログインの期限切れ: 状態表示を押してもらってログインし直す(ポップアップはタップ直後にしか開けない)
+      this.ui.setStatus('☁ 要ログイン', () => this.reauthDrive());
     } else if (r === 'noperm' || r === 'error') {
-      if (!this.fileWarned) toast('連動しているファイルに書き込めませんでした。ブラウザ内には保存されています', 4000);
+      if (!this.fileWarned) {
+        toast(this.linked === 'drive'
+          ? 'Google ドライブに保存できませんでした(オフラインかもしれません)。ブラウザ内には保存されています。次の保存で再試行します'
+          : '連動しているファイルに書き込めませんでした。ブラウザ内には保存されています', 5000);
+      }
       this.fileWarned = true;
     } else if (r === 'none') this.linked = false;
+  }
+
+  async reauthDrive() {
+    const ok = await ensureDriveAuth('Google ドライブへの接続の有効期限が切れました。接続し直して、変更をドライブに保存します。', {
+      beforeRedirect: () => this.save(),
+    });
+    if (ok) {
+      this.ui.statusAction = null;
+      this.ui.setStatus('保存中…');
+      this.fileSeq = -1;
+      await this.flushFileSync();
+    }
+  }
+
+  async linkDrive() {
+    if (this.linked === 'drive') { toast('この作品はすでに Google ドライブと同期しています'); return; }
+    if (!(await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。', { beforeRedirect: () => this.save() }))) return;
+    await this.save();
+    try {
+      toast('Google ドライブに保存中…', 60000);
+      await startDriveLink(this.project.id);
+      this.linked = 'drive';
+      this.fileSeq = this.savedSeq;
+      toast('Google ドライブに保存しました。以後は自動で同期します');
+      this.ui.setStatus('保存済み ☁');
+    } catch (err) {
+      toast('Google ドライブに保存できませんでした: ' + err.message, 5000);
+    }
   }
 
   async linkFile() {
@@ -1105,7 +1148,7 @@ export class Editor {
     await this.save();
     try {
       const r = await startLink(this.project.id, this.project.name);
-      this.linked = r === 'ok';
+      this.linked = r === 'ok' ? 'file' : false;
       this.fileSeq = this.savedSeq;
       toast(this.linked ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
       if (this.linked) this.ui.setStatus('保存済み 🔗');
@@ -1141,6 +1184,7 @@ export class Editor {
       export: () => exportDialog(this),
       'export-project': () => exportProjectFile(this),
       'link-file': () => this.linkFile(),
+      'drive-link': () => this.linkDrive(),
       undo: () => this.undo(),
       redo: () => this.redo(),
       clear: () => this.clearLayer(),

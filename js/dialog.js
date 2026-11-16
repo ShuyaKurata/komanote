@@ -33,7 +33,7 @@ export function showDialog({ title, body, buttons = [{ label: 'OK', value: true,
     const overlay = h('div', { class: 'overlay', onpointerdown: (e) => { if (e.target === overlay) close(null); } }, box);
     document.body.append(overlay);
     document.addEventListener('keydown', onKey, true);
-    onOpen?.(box);
+    onOpen?.(box, close);
     const first = box.querySelector('input:not([type=checkbox]),textarea,select');
     if (first) setTimeout(() => first.focus(), 30);
   });
