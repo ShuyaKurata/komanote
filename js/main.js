@@ -9,9 +9,10 @@ import { Editor } from './editor.js';
 import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 import { importProjectFile, exportProjectById } from './export.js';
-import { showStorageNotice, showStorageNoticeOnce, needsBackup, lastBackup } from './notice.js';
+import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
+import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission } from './filelink.js';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -45,26 +46,69 @@ async function renderHome() {
   }
   grid.append(h('button', { class: 'project-card new', onclick: newProjectDialog },
     h('div', { class: 'card-thumb', html: icon('plus', 48) }), h('div', { class: 'card-name' }, '新規作成')));
+  const links = await storage.listLinks().catch(() => ({}));
   for (const p of list) {
+    const link = links[p.id];
+    const info = () => projectInfoDialog(p, link);
     const card = h('div', { class: 'project-card' },
       h('button', { class: 'card-thumb', onclick: () => openProject(p.id) },
         p.thumb ? h('img', { src: p.thumb, alt: '' }) : h('div', { class: 'blank' })),
-      h('div', { class: 'card-name' }, p.name),
-      h('div', { class: 'card-meta' }, `${p.pageCount}ページ・${formatDate(p.updatedAt)}`),
-      h('div', { class: 'card-meta small' }, p.paperLabel),
-      needsBackup(p)
-        ? h('div', { class: 'card-meta warn' }, lastBackup(p.id) ? `⚠ 未バックアップの変更あり(前回 ${formatDate(lastBackup(p.id))})` : '⚠ まだバックアップしていません')
-        : h('div', { class: 'card-meta ok' }, `✓ バックアップ済み(${formatDate(lastBackup(p.id))})`),
-      h('div', { class: 'card-actions' },
-        h('button', { class: 'btn small primary', onclick: async () => { await exportProjectById(p.id); renderHome(); } }, 'バックアップ'),
-        h('button', { class: 'btn small', onclick: () => renameProject(p) }, '名前変更'),
-        h('button', { class: 'btn small danger', onclick: () => removeProject(p) }, '削除')),
+      h('div', { class: 'card-row' },
+        h('div', { class: 'card-name' }, p.name),
+        link ? h('button', { class: 'card-mark', title: `ファイル「${link.name}」と連動中`, onclick: info }, '🔗') : null,
+        h('button', { class: 'card-info', title: '詳細', onclick: info }, 'ⓘ')),
     );
     grid.append(card);
   }
 }
 
+/** 作品の詳細と操作(ⓘ・🔗 を押したときに出す) */
+async function projectInfoDialog(p, link) {
+  const rows = [
+    ['ページ数', `${p.pageCount}ページ`],
+    ['用紙', p.paperLabel],
+    ['最終更新', formatDate(p.updatedAt)],
+    ['保存先', link
+      ? `ブラウザ内 + ファイル「${link.name}」(🔗 連動中${link.lastWrite ? `・最終書き込み ${formatDate(link.lastWrite)}` : ''})`
+      : 'ブラウザ内のみ'],
+  ];
+  const buttons = [];
+  const act = (label, value, extra = {}) => buttons.push({ label, value, ...extra });
+  if (linkSupported()) {
+    if (link) act('連動を解除', 'unlink');
+    else act('ファイルと連動して保存', 'link');
+  }
+  act('ファイルに書き出す', 'export');
+  act('名前変更', 'rename');
+  act('削除', 'delete', { danger: true });
+  act('開く', 'open', { primary: true });
+  const v = await showDialog({
+    title: p.name, wide: true,
+    body: h('table', { class: 'help-table' }, rows.map(([a, b]) => h('tr', {}, h('th', {}, a), h('td', {}, b)))),
+    buttons,
+  });
+  try {
+    if (v === 'open') return openProject(p.id);
+    if (v === 'rename') return renameProject(p);
+    if (v === 'delete') return removeProject(p);
+    if (v === 'export') return exportProjectById(p.id);
+    if (v === 'link') {
+      const r = await startLink(p.id, p.name);
+      toast(r === 'ok' ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
+    }
+    if (v === 'unlink') { await stopLink(p.id); toast('連動を解除しました(ファイルはそのまま残ります)'); }
+  } catch (err) {
+    if (err?.name !== 'AbortError') toast('できませんでした: ' + err.message, 4000);
+  }
+  renderHome();
+}
+
 async function openProject(id) {
+  // 連動しているファイルへの書き込み許可は、タップした直後のこのタイミングでしか尋ねられない
+  if (linkSupported()) {
+    const link = await ensureLinkPermission(id);
+    if (link?.denied) toast(`ファイル「${link.name}」への書き込みが許可されなかったため、ブラウザ内にだけ保存します`, 4000);
+  }
   const json = await storage.getProject(id);
   if (!json) { toast('作品が見つかりません'); return renderHome(); }
   await openEditor(json);
@@ -130,11 +174,20 @@ async function newProjectDialog() {
 home.querySelector('#btn-new').addEventListener('click', newProjectDialog);
 home.querySelector('#btn-help').addEventListener('click', () => editor.ui.showHelp());
 home.querySelector('#btn-storage').addEventListener('click', () => showStorageNotice());
-home.querySelector('#notice-more').addEventListener('click', () => showStorageNotice());
 showStorageNoticeOnce();
 
 const fileInput = home.querySelector('#file-import');
-home.querySelector('#btn-import').addEventListener('click', () => fileInput.click());
+home.querySelector('#btn-import').addEventListener('click', async () => {
+  // 対応ブラウザでは、読み込んだファイルとそのまま連動させる
+  if (!linkSupported()) return fileInput.click();
+  try {
+    await openLinkedFile(importProjectFile);
+    toast('読み込みました(ファイルと連動中)');
+    renderHome();
+  } catch (err) {
+    if (err?.name !== 'AbortError') toast('読み込めませんでした: ' + err.message, 5000);
+  }
+});
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files[0];
   fileInput.value = '';

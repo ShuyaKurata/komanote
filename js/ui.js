@@ -17,7 +17,8 @@ export const MENUS = [
       { label: '作品名の変更…', cmd: 'rename' },
       '-',
       { label: '画像・PDF の書き出し…', cmd: 'export', key: '⇧⌘E' },
-      { label: '作品ファイル(.komanote)として保存', cmd: 'export-project' },
+      { label: 'ファイルと連動して保存… 🔗', cmd: 'link-file' },
+      { label: '作品ファイルを書き出す(手動保存)', cmd: 'export-project' },
     ],
   },
   {
@@ -80,7 +81,7 @@ export const MENUS = [
       { label: 'パレットの表示切替', cmd: 'toggle-palettes', key: 'Tab' },
     ],
   },
-  { label: 'ヘルプ', items: [{ label: '操作方法', cmd: 'help' }, { label: 'データの保存について(大切)', cmd: 'storage-notice' }] },
+  { label: 'ヘルプ', items: [{ label: '操作方法', cmd: 'help' }, { label: 'データの保存について', cmd: 'storage-notice' }] },
 ];
 
 const SWATCHES = ['#000000', '#404040', '#808080', '#b3b3b3', '#ffffff', '#3b6fd8', '#d83b3b', '#f0c419', '#2fa84f', '#8e44ad'];
@@ -119,7 +120,7 @@ export class UI {
     this.refreshFloat();
     this.drawNavThumb();
     this.refreshNav();
-    this.setStatus('保存済み');
+    this.setStatus(this.ed.linked ? '保存済み 🔗' : '保存済み');
   }
 
   // ---------------- メニュー ----------------
@@ -700,9 +701,8 @@ export class UI {
       title: '操作方法',
       wide: true,
       body: h('div', {},
-        h('div', { class: 'notice-box' },
-          '⚠ 作品はこの端末のブラウザ内だけに保存されます。大切な作品は「ファイル → 作品ファイル(.komanote)として保存」でバックアップしてください。 ',
-          h('button', { class: 'btn small', onclick: () => showStorageNotice() }, '保存について詳しく')),
+        h('p', { class: 'hint' }, '作品の保存先やファイルとの連動については ',
+          h('button', { class: 'btn small', onclick: () => showStorageNotice() }, 'データの保存について'), ' を見てください。'),
         h('table', { class: 'help-table', style: { marginTop: '10px' } }, rows.map(([a, b]) => h('tr', {}, h('th', {}, a), h('td', {}, b))))),
     });
   }

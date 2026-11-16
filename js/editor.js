@@ -15,6 +15,7 @@ import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
 import { applyPaint } from './paint-tools.js';
 import { exportDialog, exportProjectFile } from './export.js';
 import { showStorageNotice } from './notice.js';
+import { linkSupported, writeLinked, startLink } from './filelink.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -77,7 +78,9 @@ export class Editor {
     this.history.clear();
     this.selection = null;
     await this.loadPage(this.page);
-    this.changeSeq = this.savedSeq = 0;
+    this.changeSeq = this.savedSeq = this.fileSeq = 0;
+    this.fileWarned = false;
+    this.linked = !!(await storage.getLink(project.id).catch(() => null));
     this.resize();
     this.fit();
     this.setTool(this.toolId);
@@ -91,6 +94,7 @@ export class Editor {
     this.tool?.cancel?.();
     this.tool?.deactivate?.();
     await this.save();
+    await this.flushFileSync();
     if (this.project) this.unloadPage(this.page);
     this.engine?.release();
     this.engine = null;
@@ -499,7 +503,9 @@ export class Editor {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => { if (e.key === ' ') this.spaceDown = false; });
     new ResizeObserver(() => { if (this.project) { this.resize(); this.ui.refreshNav(); } }).observe(this.wrap);
-    document.addEventListener('visibilitychange', () => { if (document.hidden && this.project) this.save(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.project) this.save().then(() => this.flushFileSync());
+    });
     window.addEventListener('pagehide', () => { if (this.project) this.save(); });
   }
 
@@ -1061,6 +1067,49 @@ export class Editor {
     for (const k of await storage.listBlobKeys(project.id)) if (!keep.has(k)) await storage.deleteBlob(k);
     this.savedSeq = seq;
     this.ui.setStatus(this.changeSeq === seq ? '保存済み' : '未保存');
+    if (this.linked) this.fileSync();
+  }
+
+  /**
+   * 連動しているファイルへの書き込み。作品全体を 1 ファイルにするので重く、
+   * 保存のたびではなく、手が止まってから(15 秒後)・作品を閉じるとき・アプリを離れるときに行う。
+   */
+  fileSync() {
+    clearTimeout(this._fileTimer);
+    this._fileTimer = setTimeout(() => this.flushFileSync(), 15000);
+  }
+  async flushFileSync() {
+    clearTimeout(this._fileTimer);
+    if (!this.linked || !this.project) return;
+    if (this.active) return this.fileSync();
+    if (this.fileSeq === this.savedSeq) return;
+    const seq = this.savedSeq;
+    const r = await writeLinked(this.project.id);
+    if (r === 'ok') {
+      this.fileSeq = seq;
+      this.ui.setStatus(this.changeSeq === seq ? '保存済み 🔗' : '未保存');
+    } else if (r === 'noperm' || r === 'error') {
+      if (!this.fileWarned) toast('連動しているファイルに書き込めませんでした。ブラウザ内には保存されています', 4000);
+      this.fileWarned = true;
+    } else if (r === 'none') this.linked = false;
+  }
+
+  async linkFile() {
+    if (!linkSupported()) {
+      toast('この端末のブラウザはファイルとの連動に対応していません', 3000);
+      showStorageNotice();
+      return;
+    }
+    await this.save();
+    try {
+      const r = await startLink(this.project.id, this.project.name);
+      this.linked = r === 'ok';
+      this.fileSeq = this.savedSeq;
+      toast(this.linked ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
+      if (this.linked) this.ui.setStatus('保存済み 🔗');
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('できませんでした: ' + err.message, 4000);
+    }
   }
 
   async renameProject() {
@@ -1089,6 +1138,7 @@ export class Editor {
       rename: () => this.renameProject(),
       export: () => exportDialog(this),
       'export-project': () => exportProjectFile(this),
+      'link-file': () => this.linkFile(),
       undo: () => this.undo(),
       redo: () => this.redo(),
       clear: () => this.clearLayer(),
