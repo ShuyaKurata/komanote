@@ -22,12 +22,17 @@ export const MENUS = [
       { label: 'やり直し', cmd: 'redo', key: '⇧⌘Z' },
       '-',
       { label: '消去', cmd: 'clear', key: 'Del' },
+      { label: '拡大・縮小・回転(変形)', cmd: 'transform', key: '⌘T' },
     ],
   },
   {
     label: '選択範囲', items: [
       { label: 'すべてを選択', cmd: 'select-all', key: '⌘A' },
       { label: '選択を解除', cmd: 'deselect', key: '⌘D' },
+      '-',
+      { label: '選択範囲を塗りつぶし(メインカラー)', cmd: 'fill-selection' },
+      { label: '選択範囲にトーンを貼る(新規レイヤー)', cmd: 'tone-selection' },
+      { label: '選択範囲を消去', cmd: 'clear' },
     ],
   },
   {
@@ -106,6 +111,7 @@ export class UI {
     this.refreshUndo();
     this.refreshMenus();
     this.refreshFingerMode();
+    this.refreshFloat();
     this.drawNavThumb();
     this.refreshNav();
     this.setStatus('保存済み');
@@ -262,9 +268,10 @@ export class UI {
     const box = this.$('#toolprops');
     box.innerHTML = '';
     const sub = this.ed.subtoolDef();
-    this.$('#toolprop-title').textContent = `ツールプロパティ[${sub.name}]`;
     const tool = this.ed.tool;
+    this.$('#toolprop-title').textContent = `ツールプロパティ[${tool?.title || sub.name}]`;
     if (tool?.buildProps) tool.buildProps(box, this);
+    if (tool?.title) return; // 変形などの一時ツールは固有の設定だけを出す
     const s = this.ed.settings();
     for (const key of sub.props || []) {
       const def = PROPS[key];
@@ -328,6 +335,26 @@ export class UI {
       onChange(v);
     });
     return h('div', { class: 'prop' }, h('div', { class: 'prop-head' }, h('span', { class: 'prop-label' }, def.label), val), input);
+  }
+
+  /** キャンバス上部のフローティングバー(変形の確定/選択範囲の操作) */
+  refreshFloat() {
+    const box = this.$('#float-ui');
+    box.innerHTML = '';
+    const ed = this.ed;
+    if (!ed.project) return;
+    let items = ed.tool?.floatBar?.();
+    if (!items && ed.selection) {
+      items = [
+        ['選択解除', () => ed.command('deselect')],
+        ['消去', () => ed.command('clear')],
+        ['塗りつぶし', () => ed.command('fill-selection')],
+        ['トーン', () => ed.command('tone-selection')],
+        ['変形', () => ed.command('transform'), true],
+      ];
+    }
+    if (!items) return;
+    box.append(h('div', { class: 'float-bar' }, items.map(([label, fn, primary]) => h('button', { class: 'btn small' + (primary ? ' primary' : ''), onclick: fn }, label))));
   }
 
   // ---------------- カラー ----------------

@@ -21,6 +21,16 @@ export const PROPS = {
   lineHeight: { label: '行間', type: 'range', min: 1, max: 2.5, step: 0.05, fmt: (v) => (+v).toFixed(2) },
   outline: { label: '白フチ', type: 'range', min: 0, max: 30, step: 1, unit: 'px' },
   strokeMm: { label: '線の太さ', type: 'range', min: 0, max: 2, step: 0.05, fmt: (v) => `${(+v).toFixed(2)}mm` },
+  tolerance: { label: '色の誤差', type: 'range', min: 0, max: 100, step: 1 },
+  expand: { label: '領域拡縮(隙間を埋める)', type: 'range', min: 0, max: 5, step: 1, unit: 'px' },
+  paint: { label: '塗り方', type: 'segment', options: [['color', '色'], ['tone', 'トーン(網点)']], rebuild: true },
+  lpi: { label: '線数', type: 'range', min: 20, max: 120, step: 1, unit: '線', when: (s) => s.paint === 'tone' },
+  density: { label: '濃度', type: 'range', min: 0.03, max: 0.8, step: 0.01, pct: true, when: (s) => s.paint === 'tone' },
+  angle: { label: '角度', type: 'range', min: 0, max: 90, step: 1, unit: '°', when: (s) => s.paint === 'tone' },
+  fillMode: { label: '描き方', type: 'segment', options: [['stroke', '線'], ['fill', '塗り']] },
+  count: { label: '本数', type: 'range', min: 10, max: 600, step: 1, unit: '本' },
+  lineW: { label: '線の太さ', type: 'range', min: 1, max: 60, step: 0.5, unit: 'px' },
+  jitter: { label: 'ばらつき', type: 'range', min: 0, max: 1, step: 0.01, pct: true },
   src: { label: '取得先', type: 'select', options: [['all', '表示色'], ['layer', '編集中のレイヤー']] },
 };
 
@@ -34,6 +44,13 @@ export const TOOLS = [
   {
     id: 'hand', label: '手のひら', icon: 'hand', key: 'h',
     subtools: [{ id: 'hand', name: '手のひら', kind: 'hand', props: [], settings: {} }],
+  },
+  {
+    id: 'select', label: '選択範囲', icon: 'select', key: 'm',
+    subtools: [
+      { id: 'rect', name: '長方形選択', kind: 'select', props: [], settings: { shape: 'rect' } },
+      { id: 'lasso', name: '投げ縄選択', kind: 'select', props: [], settings: { shape: 'lasso' } },
+    ],
   },
   {
     id: 'object', label: '操作(テキスト・フキダシ)', icon: 'object', key: 'o',
@@ -77,6 +94,25 @@ export const TOOLS = [
       { id: 'hard', name: '硬め', kind: 'brush', props: ['size', 'opacity', 'pressure', 'minSize', 'stabilize'], settings: brush({ size: 24, pressure: false, erase: true, stabilize: 0 }) },
       { id: 'fine', name: '細部用', kind: 'brush', props: ['size', 'opacity', 'pressure', 'minSize', 'stabilize'], settings: brush({ size: 6, pressure: true, minSize: 0.4, erase: true, stabilize: 0 }) },
       { id: 'soft', name: 'やわらかめ', kind: 'brush', props: ['size', 'opacity', 'flow'], settings: brush({ size: 100, soft: true, flow: 0.2, erase: true, stabilize: 0, pressure: false }) },
+    ],
+  },
+  {
+    id: 'fill', label: '塗りつぶし・トーン', icon: 'fill', key: 'g',
+    subtools: [
+      { id: 'ref', name: '他レイヤーを参照', kind: 'fill', props: ['tolerance', 'expand', 'paint', 'lpi', 'density', 'angle'], settings: { ref: 'all', tolerance: 12, expand: 1, paint: 'color', lpi: 60, density: 0.2, angle: 45 } },
+      { id: 'layer', name: '編集レイヤーのみ参照', kind: 'fill', props: ['tolerance', 'expand', 'paint', 'lpi', 'density', 'angle'], settings: { ref: 'layer', tolerance: 12, expand: 1, paint: 'color', lpi: 60, density: 0.2, angle: 45 } },
+      { id: 'lasso', name: '囲って塗る', kind: 'lassofill', props: ['paint', 'lpi', 'density', 'angle'], settings: { paint: 'color', lpi: 60, density: 0.2, angle: 45 } },
+      { id: 'tone', name: 'トーン(網点)を貼る', kind: 'fill', props: ['tolerance', 'expand', 'lpi', 'density', 'angle'], settings: { ref: 'all', tolerance: 12, expand: 1, paint: 'tone', lpi: 60, density: 0.2, angle: 45 } },
+    ],
+  },
+  {
+    id: 'shape', label: '図形・効果線', icon: 'shape', key: 'u',
+    subtools: [
+      { id: 'line', name: '直線', kind: 'shape', props: ['size', 'snap'], settings: { form: 'line', size: 4, snap: true } },
+      { id: 'rect', name: '長方形', kind: 'shape', props: ['size', 'fillMode'], settings: { form: 'rect', size: 4, fillMode: 'stroke' } },
+      { id: 'ellipse', name: '楕円', kind: 'shape', props: ['size', 'fillMode'], settings: { form: 'ellipse', size: 4, fillMode: 'stroke' } },
+      { id: 'focus', name: '集中線', kind: 'shape', props: ['count', 'lineW', 'jitter'], settings: { form: 'focus', count: 160, lineW: 6, jitter: 0.5 } },
+      { id: 'speed', name: '流線', kind: 'shape', props: ['count', 'lineW', 'jitter'], settings: { form: 'speed', count: 90, lineW: 5, jitter: 0.6 } },
     ],
   },
   {
