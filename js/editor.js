@@ -1147,7 +1147,15 @@ export class Editor {
     }
     await this.save();
     try {
-      const r = await startLink(this.project.id, this.project.name);
+      const r = await startLink(this.project.id, this.project.name, {
+        confirmTakeOver: async (otherId) => {
+          const other = await storage.getProject(otherId);
+          return confirmDialog('このファイルは別の作品と連動しています',
+            `「${other?.name || '別の作品'}」がこのファイルと連動しています。1 つのファイルに連動できる作品は 1 つだけです。「${other?.name}」の連動を解除して、この作品と連動しますか?(上書きされます)`,
+            '切り替える', true);
+        },
+      });
+      if (r === 'cancel') return;
       this.linked = r === 'ok' ? 'file' : false;
       this.fileSeq = this.savedSeq;
       toast(this.linked ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');

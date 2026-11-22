@@ -143,8 +143,31 @@ export async function pullFromDrive(projectId, importProjectFile) {
 }
 
 /** 保存先を選んでもらって連動を始め、すぐに 1 回書き込む */
-export async function startLink(projectId, suggestedName) {
+/**
+ * そのファイルと連動している作品の ID を探す(1 つのファイルには 1 つの作品だけを連動させるため)
+ * @param exceptId この作品は除く
+ */
+export async function findProjectLinkedTo(handle, exceptId = null) {
+  const links = await storage.listLinks();
+  for (const [id, l] of Object.entries(links)) {
+    if (id === exceptId || l.type === 'drive' || !l.handle) continue;
+    try { if (await l.handle.isSameEntry(handle)) return id; } catch { /* 無視 */ }
+  }
+  return null;
+}
+
+/**
+ * 保存先を選んでもらって連動を始め、すぐに 1 回書き込む。
+ * 選んだファイルが別の作品と連動中なら、confirmTakeOver(その作品の ID) で確認し、OK ならそちらの連動を解除する。
+ * @returns 'ok' | 'cancel' | writeLinked の結果
+ */
+export async function startLink(projectId, suggestedName, { confirmTakeOver = async () => false } = {}) {
   const handle = await window.showSaveFilePicker({ suggestedName: `${safeName(suggestedName)}.komanote`, types: TYPES });
+  const other = await findProjectLinkedTo(handle, projectId);
+  if (other) {
+    if (!(await confirmTakeOver(other))) return 'cancel';
+    await storage.deleteLink(other);
+  }
   await storage.putLink(projectId, { type: 'file', handle, name: handle.name, lastWrite: 0 });
   return writeLinked(projectId, { request: true });
 }
@@ -153,12 +176,48 @@ export async function stopLink(projectId) {
   await storage.deleteLink(projectId);
 }
 
-/** ファイルを選んで読み込み、そのファイルと連動させる。新しい作品の ID を返す */
+/**
+ * ファイルを選んで読み込み、そのファイルと連動させる。
+ * すでにそのファイルと連動している作品があれば、新しく作らずにその作品を返す。
+ * @returns {{id, existed, file}} existed=true なら既存の作品(file は選んだファイルの中身。新しさの比較用)
+ */
 export async function openLinkedFile(importProjectFile) {
   const [handle] = await window.showOpenFilePicker({ types: TYPES, multiple: false });
-  const id = await importProjectFile(await handle.getFile());
+  const file = await handle.getFile();
+  const existing = await findProjectLinkedTo(handle);
+  if (existing) return { id: existing, existed: true, file };
+  const id = await importProjectFile(file);
   await storage.putLink(id, { type: 'file', handle, name: handle.name, lastWrite: Date.now() });
-  return id;
+  return { id, existed: false, file };
+}
+
+/**
+ * 以前のバージョンで、1 つのファイル(またはドライブのファイル)に複数の作品が連動してしまったものを直す。
+ * いちばん最近そのファイルに書き込んだ作品だけ連動を残し、他は解除する。解除した数を返す。
+ */
+export async function repairDuplicateLinks() {
+  const entries = Object.entries(await storage.listLinks());
+  const groups = [];
+  for (const [id, l] of entries) {
+    let g = null;
+    for (const grp of groups) {
+      const [, l0] = grp[0];
+      if (l0.type === 'drive' || l.type === 'drive') {
+        if (l0.type === 'drive' && l.type === 'drive' && l0.fileId === l.fileId) g = grp;
+      } else {
+        try { if (await l0.handle.isSameEntry(l.handle)) g = grp; } catch { /* 無視 */ }
+      }
+      if (g) break;
+    }
+    if (g) g.push([id, l]); else groups.push([[id, l]]);
+  }
+  let removed = 0;
+  for (const grp of groups) {
+    if (grp.length < 2) continue;
+    grp.sort((a, b) => (b[1].lastWrite || 0) - (a[1].lastWrite || 0));
+    for (const [id] of grp.slice(1)) { await storage.deleteLink(id); removed++; }
+  }
+  return removed;
 }
 
 /** 作品を開くとき(ユーザー操作の直後)に、書き込み許可を確認・再取得する */
