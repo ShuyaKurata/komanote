@@ -10,11 +10,11 @@ import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 import { importProjectFile, exportProjectById } from './export.js';
 import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
-import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission, startDriveLink, openDriveFile, driveNewer, pullFromDrive } from './filelink.js';
+import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission, repairDuplicateLinks, startDriveLink, openDriveFile, driveNewer, pullFromDrive } from './filelink.js';
 import * as gdrive from './gdrive.js';
 import { driveDialog, ensureDriveAuth } from './drive-ui.js';
 
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.4.1';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -36,6 +36,7 @@ async function closeEditor() {
 }
 
 // ---------------- ホーム画面 ----------------
+let repairedLinks = false;
 async function renderHome() {
   const grid = home.querySelector('#project-grid');
   grid.innerHTML = '';
@@ -48,6 +49,12 @@ async function renderHome() {
   }
   grid.append(h('button', { class: 'project-card new', onclick: newProjectDialog },
     h('div', { class: 'card-thumb', html: icon('plus', 48) }), h('div', { class: 'card-name' }, '新規作成')));
+  // 以前のバージョンでできてしまった「1 つのファイルに複数の作品が連動」を直す
+  if (!repairedLinks) {
+    repairedLinks = true;
+    const n = await repairDuplicateLinks().catch(() => 0);
+    if (n) toast(`同じファイルに複数の作品が連動していたため、最後に保存した作品だけを連動のままにしました(${n} 件解除)`, 6000);
+  }
   const links = await storage.listLinks().catch(() => ({}));
   for (const p of list) {
     const link = links[p.id];
@@ -100,8 +107,8 @@ async function projectInfoDialog(p, link) {
     if (v === 'delete') return removeProject(p);
     if (v === 'export') return exportProjectById(p.id);
     if (v === 'link') {
-      const r = await startLink(p.id, p.name);
-      toast(r === 'ok' ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
+      const r = await startLink(p.id, p.name, { confirmTakeOver });
+      if (r !== 'cancel') toast(r === 'ok' ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
     }
     if (v === 'unlink') { await stopLink(p.id); toast('解除しました(ファイルはそのまま残ります)'); }
     if (v === 'drive' && await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。')) {
@@ -125,6 +132,14 @@ async function openProject(id) {
   const json = await storage.getProject(id);
   if (!json) { toast('作品が見つかりません'); return renderHome(); }
   await openEditor(json);
+}
+
+/** 選んだファイルが別の作品と連動中のとき、連動先を切り替えてよいか確認する */
+export async function confirmTakeOver(otherId) {
+  const other = await storage.getProject(otherId);
+  return confirmDialog('このファイルは別の作品と連動しています',
+    `「${other?.name || '別の作品'}」がこのファイルと連動しています。1 つのファイルに連動できる作品は 1 つだけです。「${other?.name}」の連動を解除して、こちらの作品と連動しますか?(上書きされます)`,
+    '切り替える', true);
 }
 
 /** ドライブと同期中の作品を開くとき、他の端末で更新されていないか確認する */
@@ -232,9 +247,27 @@ home.querySelector('#btn-import').addEventListener('click', async () => {
   // 対応ブラウザでは、読み込んだファイルとそのまま連動させる
   if (!linkSupported()) return fileInput.click();
   try {
-    await openLinkedFile(importProjectFile);
-    toast('読み込みました(ファイルと連動中)');
-    renderHome();
+    const { id, existed, file } = await openLinkedFile(importProjectFile);
+    if (!existed) {
+      toast('読み込みました(ファイルと連動中)');
+      return renderHome();
+    }
+    // そのファイルとはすでに連動している作品がある: 二重に読み込まず、その作品を使う
+    const local = await storage.getProject(id);
+    let fileProject = null;
+    try { fileProject = JSON.parse(await file.text()).project; } catch { /* 無視 */ }
+    if (fileProject && fileProject.updatedAt > (local?.updatedAt || 0) + 1000) {
+      const v = await showDialog({
+        title: 'すでに連動している作品があります',
+        body: `このファイルは作品「${local?.name}」と連動しています。ファイルの方が新しいようです(${formatDate(fileProject.updatedAt)} 更新)。ファイルの内容で作品を置き換えますか?`,
+        buttons: [{ label: '作品をそのまま開く', value: 'open' }, { label: 'ファイルの内容で置き換える', value: 'replace', primary: true }],
+      });
+      if (!v) return renderHome();
+      if (v === 'replace') await importProjectFile(file, { replaceId: id });
+    } else {
+      toast(`このファイルは作品「${local?.name}」と連動済みです。その作品を開きます`, 3000);
+    }
+    await openProject(id);
   } catch (err) {
     if (err?.name !== 'AbortError') toast('読み込めませんでした: ' + err.message, 5000);
   }

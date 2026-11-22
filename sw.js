@@ -1,6 +1,6 @@
 // オフライン対応の Service Worker
 // 方針: ネットワーク優先。つながらないときだけキャッシュを返す(更新がすぐ反映され、オフラインでも起動できる)
-const CACHE = 'komanote-v6';
+const CACHE = 'komanote-v7';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/editor.js', './js/ui.js', './js/util.js', './js/icons.js', './js/paper.js',
