@@ -9,12 +9,26 @@
 
 import { makeCanvas } from './util.js';
 
+// フォント。漫画向けの無料フォント(SIL Open Font License・商用利用可)を Google Fonts から読み込む。
+// 読み込めないとき(オフラインで未取得など)は端末に入っている近いフォントで代用する。
+// kana/kanji を分けているものは、文字ごとにフォントを切り替える(漫画のセリフの「アンチック体」の組み方)。
+const SYS_GOTHIC = '"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","YuGothic","Noto Sans JP",sans-serif';
+const SYS_MINCHO = '"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif';
 export const FONTS = {
-  antique: { label: 'アンチック風(かな明朝+漢字ゴシック)' },
-  mincho: { label: '明朝', family: '"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif JP",serif' },
-  gothic: { label: 'ゴシック', family: '"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic","YuGothic","Noto Sans JP",sans-serif' },
-  maru: { label: '丸ゴシック', family: '"Hiragino Maru Gothic ProN","Kosugi Maru","Rounded Mplus 1c","Hiragino Sans",sans-serif' },
+  antique: {
+    label: 'アンチック(漫画のセリフ)',
+    kana: { family: `"Zen Antique",${SYS_MINCHO}`, weight: 400 },
+    kanji: { family: `"Zen Kaku Gothic New",${SYS_GOTHIC}`, weight: 700 },
+  },
+  mincho: { label: '明朝(ナレーション)', family: `"Zen Old Mincho",${SYS_MINCHO}`, weight: 500, boldWeight: 900 },
+  gothic: { label: 'ゴシック', family: `"Zen Kaku Gothic New",${SYS_GOTHIC}`, weight: 500, boldWeight: 900 },
+  heavy: { label: '極太ゴシック(叫び・効果音)', family: `"Dela Gothic One",${SYS_GOTHIC}`, weight: 400, boldWeight: 400 },
+  maru: { label: '丸ゴシック(やわらかいセリフ)', family: `"Zen Maru Gothic","Hiragino Maru Gothic ProN",${SYS_GOTHIC}`, weight: 500, boldWeight: 900 },
+  hand: { label: '手書き風(教科書体)', family: `"Klee One",${SYS_MINCHO}`, weight: 600, boldWeight: 600 },
 };
+
+/** Google Fonts から読み込む書体(index.html の <link> と同じもの) */
+export const WEB_FONT_FAMILIES = ['Zen Antique', 'Zen Kaku Gothic New', 'Zen Old Mincho', 'Dela Gothic One', 'Zen Maru Gothic', 'Klee One'];
 
 export const SHAPES = [
   ['none', 'なし(文字のみ)'],
@@ -26,6 +40,7 @@ export const SHAPES = [
 ];
 
 const KANJI = /[㐀-䶿一-鿿豈-﫿々〆〇ヶ]/;
+const KANJI_G = new RegExp(KANJI.source, 'g');
 // 縦書きで 90° 回転させる文字(長音・ダッシュ・括弧など)
 const ROTATE = new Set([...'ー－―‐-–—…‥〜～~「」『』（）()［］[]【】〈〉《》｛｝{}＝=＜＞<>：:；;|｜']);
 // 縦書きで右上に寄せる句読点
@@ -36,10 +51,49 @@ const SMALL = new Set([...'ぁぃぅぇぉっゃゅょゎゕゖァィゥェォ�
 const TCY = /^[0-9!?！？]{2}$/;
 
 function fontFor(item, ch) {
-  const f = item.font === 'antique' ? (KANJI.test(ch) ? 'gothic' : 'mincho') : item.font;
-  const fam = (FONTS[f] || FONTS.gothic).family;
-  const weight = item.bold || (item.font === 'antique' && f === 'gothic') ? 'bold ' : '';
-  return `${weight}${item.size}px ${fam}`;
+  const def = FONTS[item.font] || FONTS.antique;
+  let face = def;
+  if (def.kana) face = KANJI.test(ch) ? def.kanji : def.kana;
+  const weight = item.bold ? (face.boldWeight || 900) : face.weight;
+  return `${weight} ${item.size}px ${face.family}`;
+}
+
+// ---------------- Web フォントの読み込み ----------------
+// キャンバスに描く文字は、そのフォント(使う文字の分)を読み込み終えてからでないと代用フォントで描かれてしまう。
+// 足りないときは読み込みを始め、終わったら onFontsLoaded() で描き直してもらう。
+let fontListener = () => {};
+const requested = new Set();
+export function onFontsLoaded(fn) { fontListener = fn; }
+
+/** item を描くのに必要な [フォント指定, 文字列] の組 */
+function fontNeeds(item) {
+  const def = FONTS[item.font] || FONTS.antique;
+  const text = (item.text || '').replace(/\s/g, '') || 'あ';
+  const faces = def.kana ? [[def.kana, text.replace(KANJI_G, '')], [def.kanji, (text.match(KANJI_G) || []).join('')]] : [[def, text]];
+  return faces
+    .filter(([, t]) => t)
+    .map(([face, t]) => [`${item.bold ? (face.boldWeight || 900) : face.weight} 20px ${face.family}`, t]);
+}
+
+/** 描く前に呼ぶ。まだ読み込んでいなければ読み込みを始める(待たない) */
+function requestFonts(item) {
+  if (!document.fonts) return;
+  for (const [font, text] of fontNeeds(item)) {
+    let ok = true;
+    try { ok = document.fonts.check(font, text); } catch { /* 無視 */ }
+    const key = font + text;
+    if (ok || requested.has(key)) continue;
+    requested.add(key);
+    document.fonts.load(font, text).then(() => { itemCache.clear(); fontListener(); }).catch(() => {});
+  }
+}
+
+/** 書き出しの前などに、必要なフォントを読み込み終えるまで待つ */
+export async function loadFontsFor(items) {
+  if (!document.fonts) return;
+  const jobs = [];
+  for (const it of items) for (const [font, text] of fontNeeds(it)) jobs.push(document.fonts.load(font, text).catch(() => {}));
+  await Promise.all(jobs);
 }
 
 /** 文字の並びを計算する。中心を (0,0) とした座標で返す */
@@ -226,6 +280,7 @@ export function drawBalloon(ctx, item) {
 }
 
 export function drawItem(ctx, item) {
+  requestFonts(item);
   drawBalloon(ctx, item);
   if (!item.text) return;
   const lay = layoutText(ctx, item);

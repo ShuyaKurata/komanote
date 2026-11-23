@@ -14,7 +14,10 @@ export const PROPS = {
   taperOut: { label: '抜き', type: 'range', min: 0, max: 1, step: 0.01, pct: true },
   stabilize: { label: '手ブレ補正', type: 'range', min: 0, max: 20, step: 1 },
   snap: { label: '角度を水平・垂直・45°に吸着', type: 'check' },
-  font: { label: 'フォント', type: 'select', string: true, options: [['antique', 'アンチック風'], ['mincho', '明朝'], ['gothic', 'ゴシック'], ['maru', '丸ゴシック']] },
+  font: {
+    label: 'フォント', type: 'select', string: true,
+    options: [['antique', 'アンチック(漫画のセリフ)'], ['mincho', '明朝(ナレーション)'], ['gothic', 'ゴシック'], ['heavy', '極太ゴシック(叫び・効果音)'], ['maru', '丸ゴシック'], ['hand', '手書き風']],
+  },
   sizePt: { label: '文字サイズ', type: 'range', min: 4, max: 72, step: 0.5, unit: 'pt' },
   vertical: { label: '縦書き', type: 'check' },
   bold: { label: '太字', type: 'check' },
