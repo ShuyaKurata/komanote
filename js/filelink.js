@@ -182,8 +182,13 @@ export async function stopLink(projectId) {
  * @returns {{id, existed, file}} existed=true なら既存の作品(file は選んだファイルの中身。新しさの比較用)
  */
 export async function openLinkedFile(importProjectFile) {
-  const [handle] = await window.showOpenFilePicker({ types: TYPES, multiple: false });
+  const [handle] = await window.showOpenFilePicker({
+    types: [...TYPES, { description: 'コマノートの全作品(ZIP)', accept: { 'application/zip': ['.zip'] } }],
+    multiple: false,
+  });
   const file = await handle.getFile();
+  // まとめて書き出した ZIP は連動させずに、中の作品を全部読み込む
+  if (/\.zip$/i.test(file.name)) return { zip: file };
   const existing = await findProjectLinkedTo(handle);
   if (existing) return { id: existing, existed: true, file };
   const id = await importProjectFile(file);

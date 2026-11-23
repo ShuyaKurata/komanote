@@ -253,3 +253,64 @@ export async function importProjectFile(file, { replaceId = null } = {}) {
   await storage.putProject(project);
   return project.id;
 }
+
+// ------------------------------------------------------------------
+// 全作品のまとめ書き出し・まとめ読み込み(サイトの引っ越しなど用)
+// ------------------------------------------------------------------
+/** このアプリが作った無圧縮 ZIP を読む */
+export async function readZip(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  const dec = new TextDecoder();
+  const out = [];
+  let p = 0;
+  while (p + 30 <= buf.length && dv.getUint32(p, true) === 0x04034b50) {
+    const method = dv.getUint16(p + 8, true);
+    const size = dv.getUint32(p + 18, true);
+    const nameLen = dv.getUint16(p + 26, true), extraLen = dv.getUint16(p + 28, true);
+    const name = dec.decode(buf.subarray(p + 30, p + 30 + nameLen));
+    const start = p + 30 + nameLen + extraLen;
+    if (method !== 0) throw new Error('圧縮された ZIP には対応していません(コマノートで書き出した ZIP を選んでください)');
+    out.push({ name, data: buf.subarray(start, start + size) });
+    p = start + size;
+  }
+  return out;
+}
+
+/** すべての作品を作品ファイルにして、1 つの ZIP で渡す */
+export async function exportAllProjects() {
+  const list = await storage.listProjects();
+  if (!list.length) { toast('作品がありません'); return false; }
+  const files = [];
+  const used = new Set();
+  for (let i = 0; i < list.length; i++) {
+    toast(`作品ファイルを作成中… (${i + 1}/${list.length})`, 60000);
+    const f = await buildProjectFile(list[i].id);
+    let name = f.name;
+    for (let n = 2; used.has(name); n++) name = f.name.replace(/\.komanote$/, `(${n}).komanote`);
+    used.add(name);
+    files.push({ name, data: new Uint8Array(await f.arrayBuffer()) });
+  }
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  toast('作成しました', 1200);
+  return deliver(new File([buildZip(files)], `コマノート_全作品_${stamp}.zip`, { type: 'application/zip' }));
+}
+
+/** 作品ファイル(.komanote)と、それをまとめた ZIP を読み込む。読み込んだ作品の数を返す */
+export async function importFiles(fileList) {
+  let count = 0;
+  for (const file of fileList) {
+    if (/\.zip$/i.test(file.name)) {
+      for (const e of await readZip(file)) {
+        if (!e.name.endsWith('.komanote')) continue;
+        await importProjectFile(new File([e.data], e.name, { type: 'application/json' }));
+        count++;
+      }
+    } else {
+      await importProjectFile(file);
+      count++;
+    }
+  }
+  return count;
+}
