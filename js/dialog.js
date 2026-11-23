@@ -52,8 +52,14 @@ export function showDialog({ title, body, buttons = [{ label: 'OK', value: true,
     vv?.addEventListener('scroll', fit);
     fit();
     onOpen?.(box, close);
-    const first = box.querySelector('input:not([type=checkbox]),textarea,select');
-    if (first) setTimeout(() => first.focus(), 30);
+    // iPad はタップした処理の中で入力欄にフォーカスしたときだけキーボードを出すので、すぐにフォーカスする
+    // (少し後でフォーカスすると、キーボードが出ずにもう一度タップが必要になる)
+    const first = box.querySelector('textarea,input:not([type=checkbox]),select');
+    if (first) {
+      first.focus({ preventScroll: true });
+      if (first.tagName === 'TEXTAREA') first.setSelectionRange(first.value.length, first.value.length);
+      setTimeout(() => { if (document.activeElement !== first) first.focus({ preventScroll: true }); }, 50);
+    }
   });
 }
 
