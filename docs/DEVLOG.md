@@ -410,3 +410,37 @@ App Store での公開を考えていて、ドライブ同期はしばらく使�
 
 ### 動作確認
 - 3 か所それぞれで「準備中」のダイアログが出ること、ログイン用スクリプトが読み込まれないこと、「保存について」の表示を確認
+
+---
+
+## 2026-11-23 検索で見つかるようにする(`feature/seo`, v1.5.0)
+
+### 背景
+「無料 漫画制作」のような検索で出てくるようにしたい。公開先は Cloudflare の **komanote.net**(この リポジトリの `main` から自動で公開)。
+GitHub Pages(github.io)は消す予定。
+
+### 調べてわかった問題
+- タイトルが「コマノート」だけで、説明文もない
+- ページの中身がほぼ JavaScript で、検索エンジンが読める文章がない
+- `robots.txt` と `sitemap.xml` が無く、存在しない URL も全部アプリのページ(200)が返っていた
+- 同じアプリが github.io と komanote.net の 2 か所にある
+
+### やったこと
+- **ページ情報**: タイトル「コマノート｜無料の漫画制作アプリ(iPad・Apple Pencil 対応)」、説明文、正式 URL(`https://komanote.net/`)、
+  SNS 共有用の情報(OGP・Twitter カード)、構造化データ(WebApplication・価格 0 円・機能一覧)
+- **紹介文**: 作品一覧の下に、アプリの説明・できること・使い方・よくある質問を追加(見出し h1/h2 付き。スクロールしたときだけ見える)
+- **SNS 共有用の画像** `icons/og-image.png`(1200×630)を Swift で描いて作成
+- `robots.txt`・`sitemap.xml`・`404.html` を追加
+- **github.io からの引っ越し**: 作品はサイトの URL ごとに別保存なので、github.io で描いた作品は komanote.net に引き継がれない。
+  github.io で開くと「komanote.net に引っ越しました」と案内し、「全作品を書き出す」(全作品を 1 つの ZIP に)を出す
+- 「作品ファイルを読み込む」で、ZIP や複数の作品ファイルをまとめて読み込めるようにした
+- 同じ HTML が github.io にもあるが、正式 URL を komanote.net にしているので、検索エンジンは komanote.net を正として扱う
+
+### 動作確認
+- タイトル・正式 URL・見出し・構造化データがページに入っていること
+- 全作品を ZIP に書き出して読み込むと、全作品(同じ名前の作品も別ファイルとして)読み込まれること
+- 作品一覧の紹介文と、引っ越し案内の表示
+
+### 検索エンジンへの登録(ユーザーが行う)
+- Google Search Console にドメイン komanote.net を登録し、`https://komanote.net/sitemap.xml` を送信する
+- Bing Webmaster Tools は Search Console から取り込める

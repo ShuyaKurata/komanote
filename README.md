@@ -3,7 +3,9 @@
 iPad + Apple Pencil で漫画を描くための、プロ向けペイントソフト風の漫画制作アプリです。
 ブラウザ(Safari)で動く Web アプリ(PWA)で、ホーム画面に追加すると全画面のアプリとして使え、オフラインでも動きます。
 
-**公開 URL: https://shuyakurata.github.io/komanote/**
+**公開 URL: https://komanote.net/**(Cloudflare で公開。`main` に push すると自動で反映される)
+
+> 旧 URL の https://shuyakurata.github.io/komanote/ は終了予定。開くと引っ越しの案内と「全作品を書き出す」を表示する。
 
 ## なぜ Web アプリ(PWA)なのか
 
@@ -59,7 +61,7 @@ python3 -m http.server 8080
 
 Service Worker(オフライン動作)は **HTTPS か localhost** でしか有効にならないため、iPad で常用するには HTTPS で公開します。
 
-1. iPad の Safari で https://shuyakurata.github.io/komanote/ を開く
+1. iPad の Safari で https://komanote.net/ を開く
 2. (自分で公開し直す場合)このリポジトリを GitHub に置き、Settings → Pages で `main` ブランチの `/`(ルート)を公開する。ビルドは不要
 3. 共有ボタン →「ホーム画面に追加」
 4. ホーム画面のアイコンから起動すると全画面で動き、以降はオフラインでも起動できる
@@ -161,6 +163,13 @@ js/history.js           取り消し/やり直し
 js/dialog.js            ダイアログ・通知
 docs/DEVLOG.md          開発作業の記録
 ```
+
+## 検索エンジン向けの設定
+
+- `index.html`: タイトル・説明文・正式 URL(canonical)・SNS 共有用の情報(OGP)・構造化データ(WebApplication、無料)と、作品一覧の下のアプリ紹介文
+- `robots.txt` / `sitemap.xml`: 検索エンジンにサイトの場所を知らせる
+- `404.html`: 存在しないページは 404 を返す(Cloudflare はこれがあるとアプリのページで代用しなくなる)
+- `icons/og-image.png`: SNS で共有したときの画像(1200×630)
 
 ## 開発の進め方
 

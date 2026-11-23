@@ -8,14 +8,14 @@ import * as storage from './storage.js';
 import { Editor } from './editor.js';
 import { TEMPLATES, applyTemplate } from './panels.js';
 import { showDialog, confirmDialog, promptDialog, toast } from './dialog.js';
-import { importProjectFile, exportProjectById } from './export.js';
+import { importProjectFile, exportProjectById, exportAllProjects, importFiles } from './export.js';
 import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
 import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission, repairDuplicateLinks, startDriveLink, openDriveFile, driveNewer, pullFromDrive } from './filelink.js';
 import * as gdrive from './gdrive.js';
 import { driveDialog, ensureDriveAuth, driveNotReady } from './drive-ui.js';
 import { DRIVE_ENABLED } from './config.js';
 
-export const APP_VERSION = '1.4.2';
+export const APP_VERSION = '1.5.0';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -248,14 +248,15 @@ if (DRIVE_ENABLED) {
   if (redirected === false) toast('Google ドライブに接続できませんでした');
   gdrive.preloadGis();
 }
-showStorageNoticeOnce();
+if (!location.hostname.endsWith('github.io')) showStorageNoticeOnce();
 
 const fileInput = home.querySelector('#file-import');
 home.querySelector('#btn-import').addEventListener('click', async () => {
   // 対応ブラウザでは、読み込んだファイルとそのまま連動させる
   if (!linkSupported()) return fileInput.click();
   try {
-    const { id, existed, file } = await openLinkedFile(importProjectFile);
+    const { id, existed, file, zip } = await openLinkedFile(importProjectFile);
+    if (zip) return importAndReport([zip]);
     if (!existed) {
       toast('読み込みました(ファイルと連動中)');
       return renderHome();
@@ -280,19 +281,47 @@ home.querySelector('#btn-import').addEventListener('click', async () => {
     if (err?.name !== 'AbortError') toast('読み込めませんでした: ' + err.message, 5000);
   }
 });
-fileInput.addEventListener('change', async () => {
-  const file = fileInput.files[0];
-  fileInput.value = '';
-  if (!file) return;
+async function importAndReport(files) {
   try {
     toast('読み込み中…', 60000);
-    await importProjectFile(file);
-    toast('読み込みました');
-    renderHome();
+    const n = await importFiles(files);
+    toast(n ? `${n} 個の作品を読み込みました` : '読み込める作品がありませんでした', 3000);
   } catch (err) {
     toast('読み込めませんでした: ' + err.message, 5000);
   }
+  renderHome();
+}
+fileInput.multiple = true;
+fileInput.addEventListener('change', () => {
+  const files = [...fileInput.files];
+  fileInput.value = '';
+  if (files.length) importAndReport(files);
 });
+
+// ---------------- 旧 URL(GitHub Pages)からの引っ越し案内 ----------------
+// 作品はサイトの URL ごとに別々に保存されるので、github.io で描いた作品は komanote.net では見えない。
+const NEW_URL = 'https://komanote.net/';
+async function showMoveNotice() {
+  const has = (await storage.listProjects().catch(() => [])).length > 0;
+  const v = await showDialog({
+    title: 'コマノートは komanote.net に引っ越しました',
+    wide: true,
+    body: h('div', { class: 'notice-body' },
+      h('p', {}, 'このページ(github.io)は近いうちに終了します。これからは ', h('strong', {}, 'komanote.net'), ' を使ってください。'),
+      has ? h('div', { class: 'notice-box' },
+        '作品はサイトの URL ごとに別々に保存されているため、ここで描いた作品は komanote.net には自動で引き継がれません。',
+        h('br'), '「全作品を書き出す」で ZIP ファイルを保存し、komanote.net の「作品ファイルを読み込む」でその ZIP を選ぶと、まとめて移せます。') : null,
+      h('p', { class: 'hint' }, 'ホーム画面に追加している場合は、komanote.net を開いて、もう一度ホーム画面に追加してください。')),
+    buttons: [
+      { label: 'あとで', value: null },
+      ...(has ? [{ label: '全作品を書き出す', value: 'export' }] : []),
+      { label: 'komanote.net を開く', value: 'open', primary: true },
+    ],
+  });
+  if (v === 'export') { await exportAllProjects(); showMoveNotice(); }
+  if (v === 'open') location.href = NEW_URL;
+}
+if (location.hostname.endsWith('github.io')) showMoveNotice();
 
 // オフラインで使えるように Service Worker を登録(localhost / HTTPS のときのみ有効)
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
@@ -303,4 +332,4 @@ storage.requestPersist();
 renderHome();
 
 // 開発時のデバッグ用
-window.komanote = { editor, storage };
+window.komanote = { editor, storage, showMoveNotice };
