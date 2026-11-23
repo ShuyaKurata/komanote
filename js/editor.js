@@ -16,7 +16,8 @@ import { applyPaint } from './paint-tools.js';
 import { exportDialog, exportProjectFile } from './export.js';
 import { showStorageNotice } from './notice.js';
 import { linkSupported, writeLinked, startLink, startDriveLink } from './filelink.js';
-import { ensureDriveAuth } from './drive-ui.js';
+import { ensureDriveAuth, driveNotReady } from './drive-ui.js';
+import { DRIVE_ENABLED } from './config.js';
 import { toast, confirmDialog, promptDialog } from './dialog.js';
 
 const MIN_SCALE = 0.02, MAX_SCALE = 32;
@@ -1124,6 +1125,7 @@ export class Editor {
   }
 
   async linkDrive() {
+    if (!DRIVE_ENABLED) { driveNotReady(); return; }
     if (this.linked === 'drive') { toast('この作品はすでに Google ドライブと同期しています'); return; }
     if (!(await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。', { beforeRedirect: () => this.save() }))) return;
     await this.save();
