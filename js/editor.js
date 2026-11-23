@@ -52,6 +52,8 @@ export class Editor {
 
     this.history = new History({ onChange: () => this.ui?.refreshUndo() });
     this.pointers = new Map();
+    this.palmIds = new Set(); // 手のひらとみなして無視している指
+    this.lastPenUp = -Infinity;
     this.gesture = null;
     this.active = null;
     this.panState = null;
@@ -541,7 +543,21 @@ export class Editor {
     }
     this.pointers.set(e.pointerId, { type: e.pointerType, sx: p.sx, sy: p.sy, x0: p.sx, y0: p.sy });
 
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'pen') {
+      // Apple Pencil が最優先。画面に手のひらや指が触れていても描けるようにする
+      if (this.active) {
+        // 前の線の「離した」合図が届いていない場合など: 前の線を確定(ペン)/取り消し(指)してから描き始める
+        if (this.active.type === 'pen') this.tool?.up(this.pt(e), e);
+        else this.tool?.cancel?.();
+        this.active = null;
+      }
+      if (this.gesture) this.suspendGesture();
+    } else if (e.pointerType === 'touch') {
+      // ペンで描いている最中・描いた直後に触れた指は手のひらとみなして無視する
+      if (this.active?.type === 'pen' || performance.now() - this.lastPenUp < 400) {
+        this.palmIds.add(e.pointerId);
+        return;
+      }
       const n = this.touchPts().length;
       if (this.gesture || n >= 2 || !this.fingerDraws()) {
         if (this.active?.type === 'touch') { this.tool?.cancel?.(); this.active = null; }
@@ -563,7 +579,7 @@ export class Editor {
   }
 
   onMove(e) {
-    if (!this.project) return;
+    if (!this.project || this.palmIds.has(e.pointerId)) return;
     const q = this.pointers.get(e.pointerId);
     const p = this.pt(e);
     if (q) { q.sx = p.sx; q.sy = p.sy; }
@@ -587,6 +603,8 @@ export class Editor {
   onUp(e, cancelled) {
     const q = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
+    if (this.palmIds.delete(e.pointerId)) return;
+    if (e.pointerType === 'pen') this.lastPenUp = performance.now();
     if (this.gesture && q?.type === 'touch') {
       if (this.touchPts().length === 0) this.endGesture();
       else this.rebaseGesture();
@@ -595,9 +613,17 @@ export class Editor {
     if (this.panState?.id === e.pointerId) { this.panState = null; return; }
     if (this.active?.id === e.pointerId) {
       this.active = null;
-      if (cancelled) this.tool?.cancel?.();
+      // ペンの線は、途中で中断の合図(pointercancel)が来ても描いたところまで残す
+      if (cancelled && e.pointerType !== 'pen') this.tool?.cancel?.();
       else this.tool?.up(this.pt(e), e);
     }
+  }
+
+  /** ペンが触れたら、手のひらによる拡大・移動・2 本指タップを止める(今触れている指は離すまで無視) */
+  suspendGesture() {
+    for (const [id, q] of this.pointers) if (q.type === 'touch') this.palmIds.add(id);
+    for (const id of this.palmIds) this.pointers.delete(id);
+    this.gesture = null;
   }
 
   startGesture() {
@@ -647,7 +673,9 @@ export class Editor {
     const g = this.gesture;
     this.gesture = null;
     // 2 本指タップ = 取り消し / 3 本指タップ = やり直し
-    if (!g.moved && performance.now() - g.t0 < 350) {
+    // (ペンで描いた直後は手のひらが触れただけのことが多いので、取り消しにしない)
+    const nearPen = this.active?.type === 'pen' || g.t0 - this.lastPenUp < 800;
+    if (!g.moved && !nearPen && performance.now() - g.t0 < 350) {
       if (g.max === 2) this.undo();
       else if (g.max >= 3) this.redo();
     }
