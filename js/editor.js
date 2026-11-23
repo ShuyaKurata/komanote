@@ -14,6 +14,7 @@ import { applyTemplate } from './panels.js';
 import { pointInPolygon, polyToPath, polyBounds } from './geometry.js';
 import { applyPaint } from './paint-tools.js';
 import { exportDialog, exportProjectFile } from './export.js';
+import { onFontsLoaded } from './text.js';
 import { showStorageNotice } from './notice.js';
 import { linkSupported, writeLinked, startLink, startDriveLink } from './filelink.js';
 import { ensureDriveAuth, driveNotReady } from './drive-ui.js';
@@ -68,6 +69,8 @@ export class Editor {
     this.toolImpls = createTools(this);
     this.ui = new UI(this);
     this.autosave = debounce(() => this.save(), 4000);
+    // フォントの読み込みが終わったら、文字を描き直す
+    onFontsLoaded(debounce(() => { if (this.project) { this.requestRender(); this.ui.scheduleThumbs(); } }, 50));
     this.bindEvents();
   }
 

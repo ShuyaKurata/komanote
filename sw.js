@@ -1,6 +1,6 @@
 // オフライン対応の Service Worker
 // 方針: ネットワーク優先。つながらないときだけキャッシュを返す(更新がすぐ反映され、オフラインでも起動できる)
-const CACHE = 'komanote-v9';
+const CACHE = 'komanote-v10';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/main.js', './js/editor.js', './js/ui.js', './js/util.js', './js/icons.js', './js/paper.js',
@@ -17,13 +17,29 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== FONT_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
 
+const FONT_CACHE = 'komanote-fonts-v1';
+const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  // Google Fonts は一度読み込んだらキャッシュから使う(オフラインでも同じフォントで表示できる)
+  if (FONT_HOSTS.includes(url.hostname)) {
+    e.respondWith(caches.open(FONT_CACHE).then(async (c) => {
+      const hit = await c.match(e.request);
+      if (hit) return hit;
+      const res = await fetch(e.request);
+      if (res.ok || res.type === 'opaque') c.put(e.request, res.clone());
+      return res;
+    }));
+    return;
+  }
+  if (url.origin !== location.origin) return;
   e.respondWith(
     // no-cache: ブラウザの HTTP キャッシュに古いファイルが残っていても、必ずサーバーに更新を確認する
     fetch(e.request, { cache: 'no-cache' })

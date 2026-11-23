@@ -7,6 +7,7 @@ import { blobKey } from './model.js';
 import * as storage from './storage.js';
 import { showDialog, toast } from './dialog.js';
 import { buildProjectFile } from './filelink.js';
+import { loadFontsFor } from './text.js';
 
 const enc = new TextEncoder();
 
@@ -158,6 +159,7 @@ export async function exportDialog(ed) {
   ed.busy = true;
   toast('書き出し中…', 60000);
   try {
+    await loadFontsFor(indices.flatMap((i) => ed.project.pages[i].items));
     const name = safeName(ed.project.name);
     const fmt = format.value;
     const r = cropRect(P, area.value);
