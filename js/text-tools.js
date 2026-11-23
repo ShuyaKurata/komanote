@@ -41,7 +41,10 @@ export async function editItemDialog(ed, item, isNew) {
     const it = current();
     if (it.autoFit || it.shape === 'none') fitItemToText(it);
     const W = preview.clientWidth || 260, H = preview.clientHeight || 200, dpr = window.devicePixelRatio || 1;
-    preview.width = W * dpr; preview.height = H * dpr;
+    // 大きさが変わったときだけキャンバスを作り直す(毎回作り直すと重い)
+    if (preview.width !== Math.round(W * dpr) || preview.height !== Math.round(H * dpr)) {
+      preview.width = Math.round(W * dpr); preview.height = Math.round(H * dpr);
+    }
     const c = preview.getContext('2d');
     c.fillStyle = '#fff';
     c.fillRect(0, 0, preview.width, preview.height);
@@ -50,10 +53,18 @@ export async function editItemDialog(ed, item, isNew) {
     const bw = Math.max(it.w, ext * 2) * 1.15, bh = Math.max(it.h, ext * 2) * 1.15;
     const k = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 3) * dpr;
     c.setTransform(k, 0, 0, k, preview.width / 2 - (it.x + it.w / 2) * k, preview.height / 2 - (it.y + it.h / 2) * k);
-    drawItem(c, it);
+    drawItem(c, it, true);
     c.setTransform(1, 0, 0, 1, 0, 0);
   };
-  const redraw = () => { draw(); loadFontsFor([current()]).then(draw); };
+  // 入力のたびにすぐ描かず、手が止まった瞬間(次の描画のタイミング + 少し)にまとめて描く
+  let timer = 0;
+  const redraw = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => requestAnimationFrame(async () => {
+      draw();
+      if (await loadFontsFor([current()])) draw(); // 新しい文字のフォントを読み込んだら描き直す
+    }), 80);
+  };
   for (const el of [ta, font, size, vertical, bold]) el.addEventListener('input', redraw);
   for (const el of [font, vertical, bold]) el.addEventListener('change', redraw);
   const body = h('div', { class: 'form text-dialog' },

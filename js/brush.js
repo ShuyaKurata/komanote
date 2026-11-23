@@ -110,6 +110,8 @@ export class StrokeEngine {
   push(x, y, p) {
     const last = this.pts[this.pts.length - 1];
     if (last) this.total += Math.hypot(x - last.x, y - last.y);
+    // Apple Pencil は触れた瞬間の筆圧が 0 に近いことが多いので、最初の点は次の点の筆圧に合わせる
+    if (this.pts.length === 1 && p > last.p) last.p = p;
     this.pts.push({ x, y, p, d: this.total });
     const r = this.stampSegment(this.pts.length - 1, false);
     if (r) {
@@ -134,12 +136,25 @@ export class StrokeEngine {
     return d;
   }
 
-  radius(p, d, taperOut) {
+  /**
+   * その位置の半径。final=true はストロークを描き終えたあとの描き直し(線の長さがわかっている)。
+   * 入り・抜きの長さは線の長さの 35% までに抑える。固定の長さのままだと、素早く引いた短い線が
+   * 全部「入り」「抜き」の細い部分になってしまい、ほとんど見えなくなる。
+   */
+  radius(p, d, final) {
     const b = this.brush;
     let f = 1;
     if (b.pressure) f *= b.minSize + (1 - b.minSize) * p;
-    if (b.taperIn > 0) f *= Math.min(1, 0.08 + d / (b.taperIn * b.size * 12));
-    if (taperOut && b.taperOut > 0) f *= Math.min(1, 0.08 + (this.total - d) / (b.taperOut * b.size * 12));
+    const short = final && this.total < 1; // 点を打っただけ
+    if (b.taperIn > 0 && !short) {
+      let L = b.taperIn * b.size * 12;
+      if (final) L = Math.min(L, this.total * 0.35);
+      if (L > 0) f *= Math.min(1, 0.1 + d / L);
+    }
+    if (final && b.taperOut > 0 && !short) {
+      const L = Math.min(b.taperOut * b.size * 12, this.total * 0.35);
+      if (L > 0) f *= Math.min(1, 0.1 + (this.total - d) / L);
+    }
     return Math.max(0.35, (b.size * f) / 2);
   }
 
@@ -236,8 +251,9 @@ export class StrokeEngine {
         this.addPoint(this.raw.x, this.raw.y, this.raw.p);
       }
     }
-    // 抜き: ストローク全体を描き直す
-    if (this.brush.taperOut > 0 && this.pts.length > 1 && this.bbox) {
+    // 線の長さがわかったので、入り・抜き・最初の点の筆圧を反映してストローク全体を描き直す
+    const b = this.brush;
+    if ((b.taperIn > 0 || b.taperOut > 0 || b.pressure) && this.bbox) {
       const r = clipRect(this.bbox, this.w, this.h);
       if (r) this.bctx.clearRect(r.x, r.y, r.w, r.h);
       for (let i = 0; i < this.pts.length; i++) this.stampSegment(i, true);

@@ -42,7 +42,7 @@ function brushTool(ed) {
     showBrushCursor: true,
     down(p) {
       layer = ed.editableLayer();
-      if (!layer) return;
+      if (!layer) { ed.diagLog('無視', 'レイヤーに描けない(ロック・非表示)'); return; }
       const s = ed.settings();
       const erase = s.erase || ed.color.transparent;
       ed.engine.begin(layer, { ...s, erase }, ed.currentColor(), ed.selectionPath());
@@ -59,7 +59,12 @@ function brushTool(ed) {
     up() {
       if (!drawing) return;
       drawing = false;
-      const res = ed.engine.end();
+      const eng = ed.engine;
+      const res = eng.end();
+      if (ed.diag) {
+        const maxR = Math.max(0, ...eng.pts.map((q) => eng.radius(q.p, q.d, true)));
+        ed.diagLog('線', { text: `点${eng.pts.length} 長さ${eng.total.toFixed(0)}px 最大幅${(maxR * 2).toFixed(1)}px`, thin: maxR * 2 * ed.view.scale < 0.8 });
+      }
       ed.render(); // 最後の部分を差分描画で反映してから通常表示に戻す
       ed.endStrokeView();
       if (res) ed.pushRaster('描画', layer, res.rect, res.before, res.after);

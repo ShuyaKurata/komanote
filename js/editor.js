@@ -70,7 +70,7 @@ export class Editor {
     this.ui = new UI(this);
     this.autosave = debounce(() => this.save(), 4000);
     // フォントの読み込みが終わったら、文字を描き直す
-    onFontsLoaded(debounce(() => { if (this.project) { this.requestRender(); this.ui.scheduleThumbs(); } }, 50));
+    onFontsLoaded(debounce(() => { if (this.project) { this.requestRender(); this.ui.scheduleThumbs(); } }, 300));
     this.bindEvents();
   }
 
@@ -507,6 +507,10 @@ export class Editor {
     });
     c.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
+    // iPad の Safari は、Apple Pencil の連続タップをダブルタップ拡大などの操作として横取りすることがある。
+    // タッチイベントの既定動作を止めて、入力をすべてこのアプリで受け取る(ポインターイベントはそのまま届く)
+    for (const ev of ['touchstart', 'touchmove', 'touchend']) c.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+    c.addEventListener('dblclick', (e) => e.preventDefault());
     for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
       document.addEventListener(ev, (e) => e.preventDefault());
     }
@@ -536,7 +540,8 @@ export class Editor {
   touchPts() { return [...this.pointers.values()].filter((q) => q.type === 'touch'); }
 
   onDown(e) {
-    if (!this.project || this.busy) return;
+    if (e.pointerType === 'pen') this.diagLog('down', `筆圧 ${(e.pressure || 0).toFixed(2)}`);
+    if (!this.project || this.busy) { if (e.pointerType === 'pen') this.diagLog('無視', this.busy ? '読み込み中' : '作品なし'); return; }
     e.preventDefault();
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* 無視 */ }
     const p = this.pt(e);
@@ -568,9 +573,9 @@ export class Editor {
         return;
       }
     }
-    if (this.gesture || this.active) return;
+    if (this.gesture || this.active) { if (e.pointerType === 'pen') this.diagLog('無視', this.gesture ? 'ジェスチャー中' : '別の入力中'); return; }
     // 狭い画面でパレットが重なっているときは、キャンバスに触れたら閉じるだけにする
-    if (this.ui.closeOverlayDocks()) return;
+    if (this.ui.closeOverlayDocks()) { this.diagLog('無視', 'パレットを閉じた'); return; }
     if ((e.pointerType === 'mouse' && e.button === 1) || this.spaceDown) {
       this.panState = { id: e.pointerId, anchor: { x: p.x, y: p.y } };
       return;
@@ -607,7 +612,7 @@ export class Editor {
     const q = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
     if (this.palmIds.delete(e.pointerId)) return;
-    if (e.pointerType === 'pen') this.lastPenUp = performance.now();
+    if (e.pointerType === 'pen') { this.lastPenUp = performance.now(); this.diagLog(cancelled ? 'cancel' : 'up', ''); }
     if (this.gesture && q?.type === 'touch') {
       if (this.touchPts().length === 0) this.endGesture();
       else this.rebaseGesture();
@@ -620,6 +625,30 @@ export class Editor {
       if (cancelled && e.pointerType !== 'pen') this.tool?.cancel?.();
       else this.tool?.up(this.pt(e), e);
     }
+  }
+
+  // ---------------- 入力の診断(ペンの描き漏れの原因調べ用) ----------------
+  toggleDiag() {
+    if (this.diag) { this.diag.el.remove(); this.diag = null; return; }
+    const el = document.createElement('div');
+    el.className = 'diag';
+    this.wrap.append(el);
+    this.diag = { el, log: [], n: { down: 0, up: 0, cancel: 0, stroke: 0, thin: 0, ignored: 0 } };
+    this.diagLog('開始', 'ペンで描くと、ここに記録されます');
+  }
+  diagLog(kind, info) {
+    const d = this.diag;
+    if (!d) return;
+    if (kind === 'down') d.n.down++;
+    if (kind === 'up') d.n.up++;
+    if (kind === 'cancel') d.n.cancel++;
+    if (kind === '線') { d.n.stroke++; if (info.thin) d.n.thin++; info = info.text; }
+    if (kind === '無視') d.n.ignored++;
+    const t = new Date();
+    d.log.unshift(`${String(t.getSeconds()).padStart(2, '0')}.${String(t.getMilliseconds()).padStart(3, '0')} ${kind} ${info}`);
+    d.log.length = Math.min(d.log.length, 14);
+    const n = d.n;
+    d.el.textContent = `ペン 押す${n.down} 離す${n.up} 中断${n.cancel} 線${n.stroke}(細すぎ${n.thin}) 無視${n.ignored}\n` + d.log.join('\n');
   }
 
   /** ペンが触れたら、手のひらによる拡大・移動・2 本指タップを止める(今触れている指は離すまで無視) */
@@ -1280,6 +1309,7 @@ export class Editor {
       'toggle-rotate': () => { this.prefs.allowRotate = !this.prefs.allowRotate; this.savePrefs(); this.ui.refreshMenus(); },
       'finger-mode': (mode) => { this.prefs.fingerDraw = mode; this.savePrefs(); this.ui.refreshFingerMode(); this.ui.refreshMenus(); },
       'toggle-palettes': () => this.ui.togglePalettes(),
+      'toggle-diag': () => this.toggleDiag(),
       'toggle-left': () => this.ui.toggleDock('left'),
       'toggle-right': () => this.ui.toggleDock('right'),
       'toggle-pages': () => this.ui.toggleDock('pages'),

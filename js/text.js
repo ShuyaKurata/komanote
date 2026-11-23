@@ -75,25 +75,48 @@ function fontNeeds(item) {
     .map(([face, t]) => [`${item.bold ? (face.boldWeight || 900) : face.weight} 20px ${face.family}`, t]);
 }
 
+// どのフォントのどの文字を読み込み済みか覚えておく。document.fonts.check() は日本語フォントだと
+// 数百に分かれた部品を毎回調べるので重く、文字入力のたびに呼ぶと iPad で入力が遅れる。
+const loadedChars = new Map();
+function missingChars(font, text) {
+  const set = loadedChars.get(font);
+  let m = '';
+  for (const ch of new Set(text)) if (!set?.has(ch)) m += ch;
+  return m;
+}
+function markLoaded(font, text) {
+  let set = loadedChars.get(font);
+  if (!set) loadedChars.set(font, (set = new Set()));
+  for (const ch of text) set.add(ch);
+}
+
 /** 描く前に呼ぶ。まだ読み込んでいなければ読み込みを始める(待たない) */
 function requestFonts(item) {
   if (!document.fonts) return;
   for (const [font, text] of fontNeeds(item)) {
-    let ok = true;
-    try { ok = document.fonts.check(font, text); } catch { /* 無視 */ }
-    const key = font + text;
-    if (ok || requested.has(key)) continue;
-    requested.add(key);
-    document.fonts.load(font, text).then(() => { itemCache.clear(); fontListener(); }).catch(() => {});
+    const miss = missingChars(font, text);
+    if (!miss || requested.has(font + miss)) continue;
+    requested.add(font + miss);
+    document.fonts.load(font, miss).then(() => {
+      markLoaded(font, miss);
+      itemCache.clear();
+      fontListener();
+    }).catch(() => {});
   }
 }
 
-/** 書き出しの前などに、必要なフォントを読み込み終えるまで待つ */
+/** 書き出しの前などに、必要なフォントを読み込み終えるまで待つ。新しく読み込んだら true */
 export async function loadFontsFor(items) {
-  if (!document.fonts) return;
+  if (!document.fonts) return false;
   const jobs = [];
-  for (const it of items) for (const [font, text] of fontNeeds(it)) jobs.push(document.fonts.load(font, text).catch(() => {}));
+  for (const it of items) {
+    for (const [font, text] of fontNeeds(it)) {
+      const miss = missingChars(font, text);
+      if (miss) jobs.push(document.fonts.load(font, miss).then(() => markLoaded(font, miss)).catch(() => {}));
+    }
+  }
   await Promise.all(jobs);
+  return jobs.length > 0;
 }
 
 /** 文字の並びを計算する。中心を (0,0) とした座標で返す */
@@ -279,8 +302,9 @@ export function drawBalloon(ctx, item) {
   ctx.restore();
 }
 
-export function drawItem(ctx, item) {
-  requestFonts(item);
+/** @param quiet true ならフォントの読み込みを始めない(入力中のプレビューなど。呼ぶ側で loadFontsFor を使う) */
+export function drawItem(ctx, item, quiet = false) {
+  if (!quiet) requestFonts(item);
   drawBalloon(ctx, item);
   if (!item.text) return;
   const lay = layoutText(ctx, item);

@@ -80,6 +80,8 @@ export const MENUS = [
       { label: '指で描く: 描かない(移動のみ)', cmd: 'finger-mode', arg: 'off', check: (ed) => ed.prefs.fingerDraw === 'off' },
       '-',
       { label: 'パレットの表示切替', cmd: 'toggle-palettes', key: 'Tab' },
+      '-',
+      { label: '入力の診断を表示(ペンの描き漏れ調査用)', cmd: 'toggle-diag', check: (ed) => !!ed.diag },
     ],
   },
   { label: 'ヘルプ', items: [{ label: '操作方法', cmd: 'help' }, { label: 'データの保存について', cmd: 'storage-notice' }] },
