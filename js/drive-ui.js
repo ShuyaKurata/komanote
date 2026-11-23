@@ -6,6 +6,15 @@ import * as gdrive from './gdrive.js';
 
 const APP_URL = () => location.origin + location.pathname;
 
+/** Google ドライブ同期がまだ使えないことを知らせる(config.js の DRIVE_ENABLED が false のとき) */
+export function driveNotReady() {
+  return showDialog({
+    title: 'Google ドライブ同期(準備中)',
+    body: 'Google ドライブとの同期は、まだ使えません(準備中です)。今は、作品の ⓘ →「ファイルに書き出す」で作品ファイルを保存してください。パソコンの Chrome・Edge なら「ファイルと連動して保存 🔗」も使えます。',
+    buttons: [{ label: '閉じる', value: true, primary: true }],
+  });
+}
+
 /** 初期設定(クライアント ID)の画面。作り方の手順も表示する */
 export async function driveSetupDialog() {
   const input = h('input', { type: 'text', class: 'input', placeholder: '123456789-xxxx.apps.googleusercontent.com', value: gdrive.clientId() });

@@ -12,9 +12,10 @@ import { importProjectFile, exportProjectById } from './export.js';
 import { showStorageNotice, showStorageNoticeOnce } from './notice.js';
 import { linkSupported, startLink, stopLink, openLinkedFile, ensureLinkPermission, repairDuplicateLinks, startDriveLink, openDriveFile, driveNewer, pullFromDrive } from './filelink.js';
 import * as gdrive from './gdrive.js';
-import { driveDialog, ensureDriveAuth } from './drive-ui.js';
+import { driveDialog, ensureDriveAuth, driveNotReady } from './drive-ui.js';
+import { DRIVE_ENABLED } from './config.js';
 
-export const APP_VERSION = '1.4.1';
+export const APP_VERSION = '1.4.2';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;
@@ -111,7 +112,8 @@ async function projectInfoDialog(p, link) {
       if (r !== 'cancel') toast(r === 'ok' ? 'ファイルと連動しました。編集すると自動で上書きされます' : 'ファイルに書き込めませんでした');
     }
     if (v === 'unlink') { await stopLink(p.id); toast('解除しました(ファイルはそのまま残ります)'); }
-    if (v === 'drive' && await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。')) {
+    if (v === 'drive' && !DRIVE_ENABLED) await driveNotReady();
+    else if (v === 'drive' && await ensureDriveAuth('作品を Google ドライブに保存して、以後は編集するたびに自動で同期します。')) {
       toast('Google ドライブに保存中…', 60000);
       await startDriveLink(p.id);
       toast('Google ドライブに保存しました。以後は自動で同期します');
@@ -145,7 +147,7 @@ export async function confirmTakeOver(otherId) {
 /** ドライブと同期中の作品を開くとき、他の端末で更新されていないか確認する */
 async function checkDriveNewer(id) {
   const link = await storage.getLink(id);
-  if (link?.type !== 'drive' || !navigator.onLine) return;
+  if (!DRIVE_ENABLED || link?.type !== 'drive' || !navigator.onLine) return;
   if (!(await ensureDriveAuth('Google ドライブと同期している作品です。他の端末での変更がないか確認するため、接続します。'))) return;
   try {
     const newer = await driveNewer(id);
@@ -233,13 +235,19 @@ async function newProjectDialog() {
 home.querySelector('#btn-new').addEventListener('click', newProjectDialog);
 home.querySelector('#btn-help').addEventListener('click', () => editor.ui.showHelp());
 home.querySelector('#btn-storage').addEventListener('click', () => showStorageNotice());
-home.querySelector('#btn-drive').addEventListener('click', async () => { await driveDialog(openFromDrive); renderHome(); });
+home.querySelector('#btn-drive').addEventListener('click', async () => {
+  if (!DRIVE_ENABLED) return driveNotReady();
+  await driveDialog(openFromDrive);
+  renderHome();
+});
 
-// Google のログイン画面からページ移動で戻ってきたとき
-const redirected = gdrive.handleRedirect();
-if (redirected === true) toast('Google ドライブに接続しました');
-if (redirected === false) toast('Google ドライブに接続できませんでした');
-gdrive.preloadGis();
+if (DRIVE_ENABLED) {
+  // Google のログイン画面からページ移動で戻ってきたとき
+  const redirected = gdrive.handleRedirect();
+  if (redirected === true) toast('Google ドライブに接続しました');
+  if (redirected === false) toast('Google ドライブに接続できませんでした');
+  gdrive.preloadGis();
+}
 showStorageNoticeOnce();
 
 const fileInput = home.querySelector('#file-import');
