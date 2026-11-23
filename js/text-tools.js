@@ -2,7 +2,7 @@
 
 import { h, uid } from './util.js';
 import { icon } from './icons.js';
-import { FONTS, SHAPES, fitItemToText, hitItem } from './text.js';
+import { FONTS, SHAPES, fitItemToText, hitItem, drawItem, loadFontsFor } from './text.js';
 import { ptToPx, pxToPt, mmToPx, pxToMm } from './paper.js';
 import { showDialog, toast } from './dialog.js';
 
@@ -22,24 +22,56 @@ function newItem(ed, props) {
 /** セリフ入力ダイアログ。OK なら item を書き換えて true */
 export async function editItemDialog(ed, item, isNew) {
   const paper = ed.project.paper;
-  const ta = h('textarea', { class: 'input', rows: 5, placeholder: 'セリフを入力(改行で次の行へ)' });
+  const ta = h('textarea', {
+    class: 'input text-entry', rows: 4, placeholder: 'セリフを入力(改行で次の行へ)',
+    autocapitalize: 'off', autocorrect: 'off', spellcheck: false,
+  });
   ta.value = item.text;
   const font = h('select', { class: 'select' }, Object.entries(FONTS).map(([k, f]) => h('option', { value: k, selected: k === item.font }, f.label)));
-  const size = h('input', { type: 'number', class: 'input', min: 3, max: 200, step: 0.5, value: +pxToPt(paper, item.size).toFixed(1) });
+  const size = h('input', { type: 'number', class: 'input', min: 3, max: 200, step: 0.5, inputmode: 'decimal', value: +pxToPt(paper, item.size).toFixed(1) });
   const vertical = h('input', { type: 'checkbox', checked: item.vertical });
   const bold = h('input', { type: 'checkbox', checked: item.bold });
-  const body = h('div', { class: 'form' },
-    ta,
-    h('div', { class: 'field-row' },
-      h('label', { class: 'field' }, h('span', {}, 'フォント'), font),
-      h('label', { class: 'field', style: { maxWidth: '110px' } }, h('span', {}, 'サイズ (pt)'), size)),
-    h('div', { class: 'row' },
-      h('label', { class: 'check' }, vertical, '縦書き'),
-      h('label', { class: 'check' }, bold, '太字')),
+  // 入力しながら、原稿にどう載るか(縦書き・フォント・フキダシ)を見られるようにする
+  const preview = h('canvas', { class: 'text-preview' });
+  const current = () => ({
+    ...item, text: ta.value.replace(/\s+$/, '') || ' ', font: font.value,
+    size: ptToPx(paper, Math.max(3, +size.value || 9)), vertical: vertical.checked, bold: bold.checked,
+  });
+  const draw = () => {
+    const it = current();
+    if (it.autoFit || it.shape === 'none') fitItemToText(it);
+    const W = preview.clientWidth || 260, H = preview.clientHeight || 200, dpr = window.devicePixelRatio || 1;
+    preview.width = W * dpr; preview.height = H * dpr;
+    const c = preview.getContext('2d');
+    c.fillStyle = '#fff';
+    c.fillRect(0, 0, preview.width, preview.height);
+    const pad = 14;
+    const ext = it.tail ? Math.max(Math.abs(it.tail.x - (it.x + it.w / 2)), Math.abs(it.tail.y - (it.y + it.h / 2))) : 0;
+    const bw = Math.max(it.w, ext * 2) * 1.15, bh = Math.max(it.h, ext * 2) * 1.15;
+    const k = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 3) * dpr;
+    c.setTransform(k, 0, 0, k, preview.width / 2 - (it.x + it.w / 2) * k, preview.height / 2 - (it.y + it.h / 2) * k);
+    drawItem(c, it);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  };
+  const redraw = () => { draw(); loadFontsFor([current()]).then(draw); };
+  for (const el of [ta, font, size, vertical, bold]) el.addEventListener('input', redraw);
+  for (const el of [font, vertical, bold]) el.addEventListener('change', redraw);
+  const body = h('div', { class: 'form text-dialog' },
+    h('div', { class: 'text-dialog-main' },
+      h('div', { class: 'text-dialog-left' },
+        ta,
+        h('div', { class: 'field-row' },
+          h('label', { class: 'field' }, h('span', {}, 'フォント'), font),
+          h('label', { class: 'field', style: { maxWidth: '96px' } }, h('span', {}, 'サイズ(pt)'), size)),
+        h('div', { class: 'row' },
+          h('label', { class: 'check' }, vertical, '縦書き'),
+          h('label', { class: 'check' }, bold, '太字'))),
+      h('div', { class: 'text-dialog-right' }, h('span', { class: 'prop-label' }, 'プレビュー'), preview)),
   );
   const ok = await showDialog({
     title: isNew ? 'テキストを入力' : 'テキストを編集', body, wide: true,
     buttons: [{ label: 'キャンセル', value: false }, { label: 'OK', value: true, primary: true }],
+    onOpen: () => requestAnimationFrame(redraw),
   });
   if (!ok) return false;
   Object.assign(item, {

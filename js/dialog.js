@@ -8,12 +8,27 @@ import { h } from './util.js';
  */
 export function showDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onOpen }) {
   return new Promise((resolve) => {
+    const vv = window.visualViewport;
     const close = (v) => {
       overlay.remove();
       document.removeEventListener('keydown', onKey, true);
+      vv?.removeEventListener('resize', fit);
+      vv?.removeEventListener('scroll', fit);
+      // iPad でキーボードを閉じたあとにページがずれたままになるのを戻す
+      window.scrollTo(0, 0);
       resolve(v);
     };
+    // 画面キーボードが出たら、ダイアログをキーボードの上の見えている範囲に収める
+    const fit = () => {
+      if (!vv) return;
+      overlay.style.top = `${vv.offsetTop}px`;
+      overlay.style.height = `${vv.height}px`;
+      overlay.style.bottom = 'auto';
+      overlay.classList.toggle('kb', vv.height < window.innerHeight * 0.85);
+    };
     const onKey = (e) => {
+      // 日本語入力の変換中の Enter は、変換の確定なのでボタンを押したことにしない
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') { e.stopPropagation(); close(null); }
       if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
         const p = buttons.find((b) => b.primary);
@@ -33,6 +48,9 @@ export function showDialog({ title, body, buttons = [{ label: 'OK', value: true,
     const overlay = h('div', { class: 'overlay', onpointerdown: (e) => { if (e.target === overlay) close(null); } }, box);
     document.body.append(overlay);
     document.addEventListener('keydown', onKey, true);
+    vv?.addEventListener('resize', fit);
+    vv?.addEventListener('scroll', fit);
+    fit();
     onOpen?.(box, close);
     const first = box.querySelector('input:not([type=checkbox]),textarea,select');
     if (first) setTimeout(() => first.focus(), 30);
