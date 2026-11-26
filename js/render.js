@@ -3,6 +3,7 @@
 // 重ね順: 白い用紙 → ラスターレイヤー(下から) → コマ外のマスクとコマ枠 → テキスト・フキダシ → ガイド
 
 import { drawPanels } from './panels.js';
+import { paperOf } from './paper.js';
 import { drawItems } from './text.js';
 
 /**
@@ -16,7 +17,8 @@ import { drawItems } from './text.js';
  * @param opts.itemCache    テキスト・フキダシを画像キャッシュで描くか(画面表示用)
  */
 export function renderPage(ctx, project, page, opts = {}) {
-  const { w, h } = project.paper;
+  const pp = paperOf(project, page);
+  const { w, h } = pp;
   const {
     guides = false, includeDraft = true, px = 1, afterLayer = null,
     paper = true, layerRange = null, decorations = true, itemCache = false,
@@ -45,7 +47,7 @@ export function renderPage(ctx, project, page, opts = {}) {
     drawPanels(ctx, project, page);
     drawItems(ctx, project, page, itemCache);
   }
-  if (guides) drawGuides(ctx, project.paper, px);
+  if (guides) drawGuides(ctx, pp, px);
 }
 
 export function drawGuides(ctx, paper, px) {
@@ -61,10 +63,21 @@ export function drawGuides(ctx, paper, px) {
     ctx.strokeStyle = 'rgba(0,160,233,.9)';
     strokeRect(ctx, paper.trim);
   }
-  if (paper.frame) {
+  const frames = paper.frames || (paper.frame ? [paper.frame] : []);
+  if (frames.length) {
     ctx.setLineDash([3 * px, 3 * px]);
     ctx.strokeStyle = 'rgba(60,90,255,.85)';
-    strokeRect(ctx, paper.frame);
+    for (const f of frames) strokeRect(ctx, f);
+  }
+  if (paper.spread) {
+    // ノド(ページの境目)。ここに顔やセリフを置くと、本にしたとき綴じ目に隠れる
+    ctx.setLineDash([10 * px, 4 * px, 2 * px, 4 * px]);
+    ctx.strokeStyle = 'rgba(230,60,140,.9)';
+    ctx.lineWidth = 1.5 * px;
+    ctx.beginPath();
+    ctx.moveTo(paper.spineX, paper.bleed ? paper.bleed.y : 0);
+    ctx.lineTo(paper.spineX, paper.bleed ? paper.bleed.y + paper.bleed.h : paper.h);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -76,7 +89,7 @@ function strokeRect(ctx, r) {
 /** ページ全体を指定サイズのキャンバスに描く */
 export function renderPageTo(canvas, project, page, opts = {}) {
   const ctx = canvas.getContext('2d');
-  const s = canvas.width / project.paper.w;
+  const s = canvas.width / paperOf(project, page).w;
   ctx.setTransform(s, 0, 0, s, 0, 0);
   ctx.imageSmoothingQuality = 'high';
   renderPage(ctx, project, page, { px: 1 / s, ...opts });

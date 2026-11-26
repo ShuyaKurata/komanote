@@ -37,7 +37,7 @@ export async function listProjects() {
   const all = await req((await store('projects')).getAll());
   return all
     .map((p) => ({
-      id: p.id, name: p.name, updatedAt: p.updatedAt, pageCount: p.pages.length,
+      id: p.id, name: p.name, updatedAt: p.updatedAt, pageCount: p.pages.reduce((n, pg) => n + (pg.spread ? 2 : 1), 0),
       paperLabel: p.paper.label, thumb: p.pages[0]?.thumb || null,
     }))
     .sort((a, b) => b.updatedAt - a.updatedAt);

@@ -15,7 +15,7 @@ import * as gdrive from './gdrive.js';
 import { driveDialog, ensureDriveAuth, driveNotReady } from './drive-ui.js';
 import { DRIVE_ENABLED } from './config.js';
 
-export const APP_VERSION = '1.6.1';
+export const APP_VERSION = '1.7.0';
 
 const home = document.getElementById('home');
 home.querySelector('.logo small').textContent = `漫画制作アプリ v${APP_VERSION}`;

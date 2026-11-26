@@ -11,13 +11,13 @@ import { toast } from './dialog.js';
 //   mask: マスク画像(rect と同じ大きさ) / path: ページ座標の Path2D
 // ------------------------------------------------------------------
 export function applyPaint(ed, layer, rect, { mask = null, path = null, paint, label = '塗りつぶし' }) {
-  const { w, h: H } = ed.project.paper;
+  const { w, h: H } = ed.paper;
   const r = clipRect(rect, w, H);
   if (!r) return;
   const pc = makeCanvas(r.w, r.h);
   const p = pc.getContext('2d');
   if (paint.type === 'tone') {
-    const pat = tonePattern(p, { dpi: ed.project.paper.dpi, lpi: paint.lpi, density: paint.density, angle: 0, color: paint.color });
+    const pat = tonePattern(p, { dpi: ed.paper.dpi, lpi: paint.lpi, density: paint.density, angle: 0, color: paint.color });
     // ページの原点を基準に網点をそろえる(隣り合う塗りで網点がずれないように)
     pat.setTransform?.(new DOMMatrix().translate(-r.x, -r.y).rotate(paint.angle));
     p.fillStyle = pat;
@@ -85,7 +85,7 @@ function fillTool(ed) {
       const L = ed.editableLayer();
       if (!L) return;
       const s = ed.settings();
-      const { w, h } = ed.project.paper;
+      const { w, h } = ed.paper;
       let img;
       if (s.ref === 'layer') {
         img = L.canvas.getContext('2d').getImageData(0, 0, w, h);
@@ -215,7 +215,7 @@ function transformTool(ed) {
     start() {
       const L = ed.editableLayer();
       if (!L) return;
-      const { w, h } = ed.project.paper;
+      const { w, h } = ed.paper;
       const sel = ed.selection;
       const b = sel ? clipRect(sel.bounds, w, h) : contentBounds(L.canvas);
       if (!b) { toast('変形するものがありません'); return; }
@@ -239,7 +239,7 @@ function transformTool(ed) {
     confirm() {
       if (!st) return;
       const L = st.layer, ctx = L.canvas.getContext('2d');
-      const { w, h } = ed.project.paper;
+      const { w, h } = ed.paper;
       ctx.save();
       ctx.imageSmoothingQuality = 'high';
       tool.drawFloating(ctx);

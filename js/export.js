@@ -3,7 +3,8 @@
 
 import { h, makeCanvas, releaseCanvas, canvasToBlob, downloadBlob, uid } from './util.js';
 import { renderPageTo } from './render.js';
-import { blobKey } from './model.js';
+import { blobKey, pageNumbers, pageLabel, totalPages } from './model.js';
+import { paperOf } from './paper.js';
 import * as storage from './storage.js';
 import { showDialog, toast } from './dialog.js';
 import { buildProjectFile } from './filelink.js';
@@ -29,19 +30,52 @@ function cropRect(paper, area) {
   return { x: 0, y: 0, w: paper.w, h: paper.h };
 }
 
-async function renderForExport(ed, page, area) {
-  const P = ed.project.paper;
-  const full = makeCanvas(P.w, P.h);
-  renderPageTo(full, ed.project, page, { includeDraft: false });
-  const r = cropRect(P, area);
+/**
+ * 見開きを左右のページに分けるときの範囲。[右ページ, 左ページ] の順(右綴じなので右が若い番号)。
+ * 裁ち落としまで出すときは、ノド側にも裁ち落とし分(隣のページの絵が続く部分)を付ける。
+ */
+function splitRects(S, area) {
+  const P = S.single, tw = P.trim.w, spine = S.spineX;
+  if (area === 'trim') {
+    return [{ x: spine, y: S.trim.y, w: tw, h: S.trim.h }, { x: S.trim.x, y: S.trim.y, w: tw, h: S.trim.h }];
+  }
+  if (area === 'bleed' && S.bleed) {
+    const bw = P.trim.x - P.bleed.x;
+    return [{ x: spine - bw, y: S.bleed.y, w: tw + bw * 2, h: S.bleed.h }, { x: S.bleed.x, y: S.bleed.y, w: tw + bw * 2, h: S.bleed.h }];
+  }
+  return [{ x: spine - P.trim.x, y: 0, w: P.w, h: P.h }, { x: 0, y: 0, w: P.w, h: P.h }];
+}
+
+function crop(full, r) {
   const out = makeCanvas(Math.round(r.w), Math.round(r.h));
   const ctx = out.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.drawImage(full, -Math.round(r.x), -Math.round(r.y));
+  return out;
+}
+
+/**
+ * ページを書き出し用の画像にする。見開きを分けるときは 2 枚になる。
+ * @returns {{canvas, rect, nums:[始め,終わり]}[]}
+ */
+async function renderForExport(ed, page, area, nums, splitSpread) {
+  const P = paperOf(ed.project, page);
+  const full = makeCanvas(P.w, P.h);
+  renderPageTo(full, ed.project, page, { includeDraft: false });
+  let out;
+  if (page.spread && splitSpread) {
+    const [rr, lr] = splitRects(P, area);
+    out = [{ canvas: crop(full, rr), rect: rr, nums: [nums[0], nums[0]] }, { canvas: crop(full, lr), rect: lr, nums: [nums[1], nums[1]] }];
+  } else {
+    const r = cropRect(P, area);
+    out = [{ canvas: crop(full, r), rect: r, nums }];
+  }
   releaseCanvas(full);
   return out;
 }
+
+const pageFileLabel = ([a, b]) => (a === b ? String(a).padStart(3, '0') : `${String(a).padStart(3, '0')}-${String(b).padStart(3, '0')}`);
 
 // ------------------------------------------------------------------
 // PDF(ページごとに JPEG を 1 枚貼る形式)
@@ -138,55 +172,64 @@ const safeName = (s) => s.replace(/[\\/:*?"<>|]/g, '_').trim() || 'manga';
 
 export async function exportDialog(ed) {
   const P = ed.project.paper;
+  const nums = pageNumbers(ed.project);
+  const hasSpread = ed.project.pages.some((p) => p.spread);
   const sel = (opts, def) => h('select', { class: 'select' }, opts.map(([v, l]) => h('option', { value: v, selected: v === def }, l)));
   const format = sel([['png', 'PNG(画質劣化なし)'], ['jpg', 'JPEG(軽い)'], ['pdf', 'PDF(入稿・印刷向け)']], 'png');
-  const range = sel([['current', `このページ(${ed.pageIndex + 1}ページ目)`], ['all', `全ページ(${ed.project.pages.length}ページ)`]], 'current');
+  const range = sel([
+    ['current', `このページ(${pageLabel(nums[ed.pageIndex])}ページ${ed.page.spread ? '・見開き' : ''})`],
+    ['all', `全ページ(${totalPages(ed.project)}ページ)`],
+  ], 'current');
   const areaOpts = [['canvas', 'キャンバス全体']];
   if (P.bleed) areaOpts.push(['bleed', '裁ち落としまで(印刷所入稿向け)']);
   if (P.trim) areaOpts.push(['trim', '仕上がりサイズ(Web 公開向け)']);
   const area = sel(areaOpts, P.trim ? 'trim' : 'canvas');
+  const spreadSel = sel([['split', '左右のページに分ける(印刷所入稿向け)'], ['keep', '見開きのまま 1 枚にする(Web 公開向け)']], 'split');
   const body = h('div', { class: 'form' },
     h('label', { class: 'field' }, h('span', {}, '形式'), format),
     h('label', { class: 'field' }, h('span', {}, 'ページ'), range),
     h('label', { class: 'field' }, h('span', {}, '出力範囲'), area),
-    h('p', { class: 'hint' }, '下書きレイヤーとガイド線は書き出されません。PNG/JPEG で全ページを選ぶと ZIP にまとめます。'));
+    hasSpread ? h('label', { class: 'field' }, h('span', {}, '見開きページ'), spreadSel) : null,
+    h('p', { class: 'hint' }, '下書きレイヤーとガイド線は書き出されません。PNG/JPEG で複数ページになるときは ZIP にまとめます。'));
   const ok = await showDialog({
     title: '画像・PDF の書き出し', body,
     buttons: [{ label: 'キャンセル', value: false }, { label: '書き出す', value: true, primary: true }],
   });
   if (!ok) return;
   const indices = range.value === 'all' ? ed.project.pages.map((_, i) => i) : [ed.pageIndex];
+  const split = spreadSel.value === 'split';
   ed.busy = true;
   toast('書き出し中…', 60000);
   try {
     await loadFontsFor(indices.flatMap((i) => ed.project.pages[i].items));
     const name = safeName(ed.project.name);
     const fmt = format.value;
-    const r = cropRect(P, area.value);
+    const images = [];
+    for (const i of indices) {
+      images.push(...await withPage(ed, i, (page) => renderForExport(ed, page, area.value, nums[i], split)));
+    }
     let file;
     if (fmt === 'pdf') {
       const pages = [];
-      for (const i of indices) {
-        const c = await withPage(ed, i, (page) => renderForExport(ed, page, area.value));
-        const jpeg = new Uint8Array(await (await canvasToBlob(c, 'image/jpeg', 0.92)).arrayBuffer());
-        pages.push({ jpeg, wPx: c.width, hPx: c.height, wPt: (r.w / P.dpi) * 72, hPt: (r.h / P.dpi) * 72 });
-        releaseCanvas(c);
+      for (const im of images) {
+        const jpeg = new Uint8Array(await (await canvasToBlob(im.canvas, 'image/jpeg', 0.92)).arrayBuffer());
+        pages.push({ jpeg, wPx: im.canvas.width, hPx: im.canvas.height, wPt: (im.rect.w / P.dpi) * 72, hPt: (im.rect.h / P.dpi) * 72 });
+        releaseCanvas(im.canvas);
       }
       file = new File([buildPdf(pages)], `${name}.pdf`, { type: 'application/pdf' });
     } else {
       const mime = fmt === 'png' ? 'image/png' : 'image/jpeg';
-      const blobs = [];
-      for (const i of indices) {
-        const c = await withPage(ed, i, (page) => renderForExport(ed, page, area.value));
-        blobs.push({ i, blob: await canvasToBlob(c, mime, 0.92) });
-        releaseCanvas(c);
+      const files = [];
+      for (const im of images) {
+        const blob = await canvasToBlob(im.canvas, mime, 0.92);
+        releaseCanvas(im.canvas);
+        files.push({ name: `${name}_${pageFileLabel(im.nums)}.${fmt}`, blob });
       }
-      if (blobs.length === 1) {
-        file = new File([blobs[0].blob], `${name}_${String(blobs[0].i + 1).padStart(3, '0')}.${fmt}`, { type: mime });
-      } else {
-        const files = [];
-        for (const b of blobs) files.push({ name: `${name}_${String(b.i + 1).padStart(3, '0')}.${fmt}`, data: new Uint8Array(await b.blob.arrayBuffer()) });
-        file = new File([buildZip(files)], `${name}.zip`, { type: 'application/zip' });
+      if (files.length === 1) file = new File([files[0].blob], files[0].name, { type: mime });
+      else {
+        const zipFiles = [];
+        for (const f of files) zipFiles.push({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) });
+        file = new File([buildZip(zipFiles)], `${name}.zip`, { type: 'application/zip' });
       }
     }
     toast('書き出しが完了しました', 1500);
