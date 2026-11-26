@@ -54,3 +54,36 @@ export const mmToPx = (paper, mm) => (mm * paper.dpi) / 25.4;
 export const pxToMm = (paper, px) => (px * 25.4) / paper.dpi;
 export const ptToPx = (paper, pt) => (pt * paper.dpi) / 72;
 export const pxToPt = (paper, px) => (px * 72) / paper.dpi;
+
+// ---------------- 見開きページ ----------------
+// 右綴じ(日本の漫画)では、見開きは「右 = 偶数ページ、左 = 奇数ページ」(例: 右 2 ページ・左 3 ページ)。
+// 見開きページは仕上がり 2 ページ分を横に並べた 1 枚のキャンバスで、真ん中(ノド)をまたいで描ける。
+const spreadCache = new WeakMap();
+
+/** 通常の用紙から見開きの用紙(横に 2 ページ分)を作る。仕上がりの無い用紙(Webtoon)は null */
+export function spreadPaper(P) {
+  if (!P.trim) return null;
+  if (spreadCache.has(P)) return spreadCache.get(P);
+  const tw = P.trim.w;
+  const frameDx = P.frame ? P.frame.x - P.trim.x : 0;
+  const S = {
+    ...P,
+    spread: true,
+    w: P.w + tw,
+    trim: { ...P.trim, w: tw * 2 },
+    bleed: P.bleed ? { ...P.bleed, w: P.bleed.w + tw } : null,
+    // 左ページ・右ページそれぞれの基本枠
+    frames: P.frame ? [
+      { ...P.frame, x: P.trim.x + frameDx },
+      { ...P.frame, x: P.trim.x + tw + frameDx },
+    ] : [],
+    frame: null,
+    spineX: P.trim.x + tw, // ノド(ページの境目)の位置
+    single: P,
+  };
+  spreadCache.set(P, S);
+  return S;
+}
+
+/** そのページの用紙(見開きなら見開き用) */
+export const paperOf = (project, page) => (page?.spread && spreadPaper(project.paper)) || project.paper;

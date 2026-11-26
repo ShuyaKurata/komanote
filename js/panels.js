@@ -3,7 +3,7 @@
 import { h, uid } from './util.js';
 import { icon } from './icons.js';
 import { rectPoly, splitPolygon, pointInPolygon, polyToPath, snapAngle } from './geometry.js';
-import { mmToPx, pxToMm } from './paper.js';
+import { mmToPx, pxToMm, paperOf } from './paper.js';
 
 export const TEMPLATES = [
   ['none', 'なし'],
@@ -17,6 +17,11 @@ export const TEMPLATES = [
 
 /** コマを配置する基準の矩形(基本枠。無い用紙では余白を取った矩形) */
 export function baseRect(paper) {
+  // 見開きは、左右の基本枠をまとめた範囲(ノドをまたぐ大ゴマを作りやすいように)
+  if (paper.frames?.length === 2) {
+    const [l, r] = paper.frames;
+    return { x: l.x, y: l.y, w: r.x + r.w - l.x, h: l.h };
+  }
   if (paper.frame) return paper.frame;
   const m = Math.round(paper.w * 0.05);
   return { x: m, y: m, w: paper.w - m * 2, h: paper.h - m * 2 };
@@ -54,7 +59,7 @@ export function applyTemplate(page, paper, name) {
 /** コマ枠とコマの外側のマスクを描く */
 export function drawPanels(ctx, project, page) {
   if (!page.showPanels || !page.panels.length) return;
-  const { w, h } = project.paper;
+  const { w, h } = paperOf(project, page);
   ctx.save();
   if (page.maskOutside) {
     const p = new Path2D();
@@ -217,7 +222,7 @@ export function panelTool(ed) {
 
     /** ツールプロパティ: ページ単位のコマ枠設定とテンプレート */
     buildProps(box, ui) {
-      const pg = page(), paper = ed.project.paper, st = pg.panelStyle;
+      const pg = page(), paper = ed.paper, st = pg.panelStyle;
       // スライダーを動かしている間は即反映し、止まってから 1 回だけ履歴に積む
       let pending = null, timer = null;
       const mmProp = (label, key, min, max) => ui.control(

@@ -9,7 +9,7 @@ import { showDialog, toast } from './dialog.js';
 /** テキストツールの設定を元に新しいテキスト/フキダシを作る */
 function newItem(ed, props) {
   const ts = ed.settings('text');
-  const paper = ed.project.paper;
+  const paper = ed.paper;
   return {
     id: uid(), x: 0, y: 0, w: 1, h: 1, text: '',
     font: ts.font, size: ptToPx(paper, ts.sizePt), vertical: ts.vertical, bold: ts.bold,
@@ -21,7 +21,7 @@ function newItem(ed, props) {
 
 /** セリフ入力ダイアログ。OK なら item を書き換えて true */
 export async function editItemDialog(ed, item, isNew) {
-  const paper = ed.project.paper;
+  const paper = ed.paper;
   const ta = h('textarea', {
     class: 'input text-entry', rows: 4, placeholder: 'セリフを入力(改行で次の行へ)',
     autocapitalize: 'off', autocorrect: 'off', spellcheck: false,
@@ -177,11 +177,11 @@ export function createTextTools(ed) {
       }
       const s = ed.settings();
       const before = ed.snapshotObjects();
-      const item = newItem(ed, { shape: s.shape, stroke: mmToPx(ed.project.paper, s.strokeMm) });
+      const item = newItem(ed, { shape: s.shape, stroke: mmToPx(ed.paper, s.strokeMm) });
       let w = Math.abs(d.b.x - d.a.x), hh = Math.abs(d.b.y - d.a.y);
       const dragged = w * ed.view.scale > 20 && hh * ed.view.scale > 20;
       if (!dragged) {
-        w = ed.project.paper.w * 0.14;
+        w = ed.paper.w * 0.14;
         hh = w * 1.35;
         item.x = d.a.x - w / 2; item.y = d.a.y - hh / 2;
       } else {
@@ -332,7 +332,7 @@ export function createTextTools(ed) {
         box.append(h('p', { class: 'hint' }, 'テキストやフキダシをタップして選択します。ドラッグで移動、四隅でサイズ変更、オレンジの点でしっぽを動かせます。選択中のものをもう一度タップすると文字を編集できます。'));
         return;
       }
-      const paper = ed.project.paper;
+      const paper = ed.paper;
       const live = (label, fn) => (v) => ed.live(label, () => fn(v));
       const refit = () => { if (it.autoFit) fitItemToText(it); };
       box.append(

@@ -77,3 +77,15 @@ export function clonePage(page) {
 }
 
 export const blobKey = (projectId, layerId) => `${projectId}/${layerId}`;
+
+/** 各ページのページ番号 [始め, 終わり](見開きは 2 ページ分) */
+export function pageNumbers(project) {
+  let n = 1;
+  return project.pages.map((p) => {
+    const r = p.spread ? [n, n + 1] : [n, n];
+    n = r[1] + 1;
+    return r;
+  });
+}
+export const pageLabel = ([a, b]) => (a === b ? `${a}` : `${a}-${b}`);
+export const totalPages = (project) => project.pages.reduce((s, p) => s + (p.spread ? 2 : 1), 0);

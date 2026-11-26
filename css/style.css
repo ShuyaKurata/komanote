@@ -257,6 +257,7 @@ textarea.input { min-height: 120px; resize: vertical; line-height: 1.6; }
 .page-item.active .page-frame { border-color: var(--accent); }
 .page-img { height: 66px; background: #fff; display: block; }
 .page-img:not([src]) { width: 47px; }
+.page-img.spread:not([src]) { width: 94px; }
 .page-no { font-size: 11px; color: var(--text-dim); }
 .page-item.active .page-no { color: #fff; }
 

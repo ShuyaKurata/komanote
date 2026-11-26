@@ -3,7 +3,7 @@
 import { h, debounce, clamp, hexToRgb, rgbToHex, rgbToHsv, hsvToRgb, makeCanvas } from './util.js';
 import { icon } from './icons.js';
 import { TOOLS, PROPS } from './tooldefs.js';
-import { BLEND_MODES } from './model.js';
+import { BLEND_MODES, pageNumbers, pageLabel, totalPages } from './model.js';
 import { renderPageTo } from './render.js';
 import { showDialog } from './dialog.js';
 import { showStorageNotice } from './notice.js';
@@ -56,6 +56,10 @@ export const MENUS = [
       { label: 'ページを追加', cmd: 'page-add' },
       { label: 'ページを複製', cmd: 'page-dup' },
       { label: 'ページを削除', cmd: 'page-del' },
+      '-',
+      { label: '見開きページを追加', cmd: 'spread-add' },
+      { label: 'このページと次のページを見開きにする', cmd: 'spread-make' },
+      { label: '見開きを解除(2 ページに分ける)', cmd: 'spread-split' },
       '-',
       { label: '前のページ', cmd: 'page-prev' },
       { label: '次のページ', cmd: 'page-next' },
@@ -219,7 +223,8 @@ export class UI {
 
   refreshTitle() {
     const p = this.ed.project;
-    this.$('#doc-title').textContent = `${p.name} — ${this.ed.pageIndex + 1}/${p.pages.length}ページ`;
+    const label = pageLabel(pageNumbers(p)[this.ed.pageIndex]);
+    this.$('#doc-title').textContent = `${p.name} — ${label}/${totalPages(p)}ページ${this.ed.page.spread ? '(見開き)' : ''}`;
   }
 
   /** 右上の保存状態。onClick を渡すと押せる表示になる(ログインし直しなど) */
@@ -513,7 +518,7 @@ export class UI {
     this.navRot.addEventListener('input', () => this.ed.rotateTo(+this.navRot.value));
     const jump = (e) => {
       const r = this.navOver.getBoundingClientRect();
-      const { w, h: ph } = this.ed.project.paper;
+      const { w, h: ph } = this.ed.paper;
       const k = this.navGeom;
       if (!k) return;
       const x = ((e.clientX - r.left) * (this.navOver.width / r.width) - k.ox) / k.s;
@@ -534,7 +539,7 @@ export class UI {
   navLayout() {
     const view = this.navThumb.parentElement;
     const W = view.clientWidth || 220, H = view.clientHeight || 150;
-    const { w, h: ph } = this.ed.project.paper;
+    const { w, h: ph } = this.ed.paper;
     const s = Math.min((W - 8) / w, (H - 8) / ph);
     return { W, H, s, ox: (W - w * s) / 2, oy: (H - ph * s) / 2 };
   }
@@ -543,7 +548,7 @@ export class UI {
     if (!this.ed.project || this.root.classList.contains('hide-right')) return;
     const g = (this.navGeom = this.navLayout());
     for (const c of [this.navThumb, this.navOver]) { c.width = g.W; c.height = g.H; }
-    const tmp = makeCanvas(Math.max(1, this.ed.project.paper.w * g.s), Math.max(1, this.ed.project.paper.h * g.s));
+    const tmp = makeCanvas(Math.max(1, this.ed.paper.w * g.s), Math.max(1, this.ed.paper.h * g.s));
     renderPageTo(tmp, this.ed.project, this.ed.page, {});
     const ctx = this.navThumb.getContext('2d');
     ctx.clearRect(0, 0, g.W, g.H);
@@ -643,7 +648,7 @@ export class UI {
 
   refreshLayerThumbs() {
     if (!this.layerThumbs || !this.ed.project) return;
-    const { w, h: ph } = this.ed.project.paper;
+    const { w, h: ph } = this.ed.paper;
     for (const [c, L] of this.layerThumbs) {
       const ctx = c.getContext('2d');
       ctx.clearRect(0, 0, c.width, c.height);
@@ -664,6 +669,7 @@ export class UI {
       h('div', { class: 'pages-head' },
         h('span', { class: 'pal-title' }, 'ページ管理'),
         b('plus', 'ページを追加', 'page-add'), b('copy', 'ページを複製', 'page-dup'),
+        b('spread', '見開き(このページと次のページを見開きにする/見開きを解除)', 'spread-toggle'),
         b('left', 'ページを前へ移動', 'page-move-left'), b('right', 'ページを後ろへ移動', 'page-move-right'),
         b('trash', 'ページを削除', 'page-del')),
       this.pageList,
@@ -674,13 +680,15 @@ export class UI {
     const ed = this.ed;
     if (!ed.project) return;
     this.pageList.innerHTML = '';
+    const nums = pageNumbers(ed.project);
     ed.project.pages.forEach((p, i) => {
-      const img = h('img', { class: 'page-img', alt: '', draggable: false });
+      const img = h('img', { class: 'page-img' + (p.spread ? ' spread' : ''), alt: '', draggable: false });
       if (p.thumb) img.src = p.thumb;
       const item = h('button', {
         class: 'page-item' + (i === ed.pageIndex ? ' active' : ''),
+        title: p.spread ? `${pageLabel(nums[i])} ページ(見開き)` : `${nums[i][0]} ページ`,
         onclick: () => ed.gotoPage(i),
-      }, h('div', { class: 'page-frame' }, img), h('div', { class: 'page-no' }, `${i + 1}`));
+      }, h('div', { class: 'page-frame' }, img), h('div', { class: 'page-no' }, pageLabel(nums[i])));
       if (i === ed.pageIndex) this.currentPageImg = img;
       this.pageList.append(item);
     });

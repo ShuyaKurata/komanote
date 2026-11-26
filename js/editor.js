@@ -1,11 +1,12 @@
 // エディタ本体: 表示(拡大・回転・反転)、入力(ペン・タッチ・マウス・キーボード)、
 // レイヤー/ページ操作、取り消し、保存をまとめる。
 
-import { clamp, debounce, makeCanvas, releaseCanvas, canvasToBlob, blobToBitmap, isTextInput, clipRect } from './util.js';
+import { clamp, debounce, makeCanvas, releaseCanvas, canvasToBlob, blobToBitmap, isTextInput, clipRect, uid } from './util.js';
 import { History, rasterEntry } from './history.js';
 import { StrokeEngine } from './brush.js';
 import { renderPage, renderPageTo } from './render.js';
-import { createLayer, createPage, clonePage, serializeProject, blobKey } from './model.js';
+import { createLayer, createPage, clonePage, serializeProject, blobKey, pageNumbers, pageLabel } from './model.js';
+import { paperOf, spreadPaper } from './paper.js';
 import { TOOLS, findTool } from './tooldefs.js';
 import { createTools } from './tools.js';
 import * as storage from './storage.js';
@@ -81,10 +82,11 @@ export class Editor {
     this.project = project;
     this.pageIndex = clamp(project.currentPage || 0, 0, project.pages.length - 1);
     this.engine?.release();
-    this.engine = new StrokeEngine(project.paper.w, project.paper.h);
+    this.engine = null;
     this.history.clear();
     this.selection = null;
     await this.loadPage(this.page);
+    this.ensureEngine();
     this.changeSeq = this.savedSeq = this.fileSeq = 0;
     this.fileWarned = false;
     const link = await storage.getLink(project.id).catch(() => null);
@@ -111,6 +113,16 @@ export class Editor {
   }
 
   get page() { return this.project.pages[this.pageIndex]; }
+  /** 今のページの用紙(見開きページなら横に 2 ページ分) */
+  get paper() { return paperOf(this.project, this.page); }
+
+  /** ブラシエンジンのキャンバスを今のページの大きさにそろえる(見開きと通常ページで大きさが違う) */
+  ensureEngine() {
+    const { w, h } = this.paper;
+    if (this.engine && this.engine.w === w && this.engine.h === h) return;
+    this.engine?.release();
+    this.engine = new StrokeEngine(w, h);
+  }
   get layer() {
     const p = this.page;
     return p.layers.find((L) => L.id === p.activeLayerId) || p.layers[p.layers.length - 1];
@@ -126,7 +138,7 @@ export class Editor {
   }
 
   async loadPage(page) {
-    const { w, h } = this.project.paper;
+    const { w, h } = paperOf(this.project, page);
     await Promise.all(page.layers.map(async (L) => {
       L.canvas = makeCanvas(w, h);
       L.dirty = false;
@@ -213,7 +225,7 @@ export class Editor {
     if (this.selection) return { path: this.selection.path, bounds: this.selection.bounds };
     const pn = [...this.page.panels].reverse().find((p) => pointInPolygon(x, y, p.points));
     if (pn && this.page.showPanels) return { path: polyToPath(pn.points), bounds: polyBounds(pn.points) };
-    const { w, h } = this.project.paper;
+    const { w, h } = this.paper;
     return { path: null, bounds: { x: 0, y: 0, w, h } };
   }
   setSubtool(subId) {
@@ -244,7 +256,7 @@ export class Editor {
   // 表示(ビュー変換)
   // ------------------------------------------------------------------
   matrix() {
-    const v = this.view, P = this.project.paper;
+    const v = this.view, P = this.paper;
     return new DOMMatrix().translate(v.tx, v.ty).rotate(v.rot)
       .scale(v.flip ? -v.scale : v.scale, v.scale).translate(-P.w / 2, -P.h / 2);
   }
@@ -269,13 +281,13 @@ export class Editor {
   viewSize() { return { w: this.wrap.clientWidth, h: this.wrap.clientHeight }; }
   center() { const s = this.viewSize(); return { x: s.w / 2, y: s.h / 2 }; }
   fit() {
-    const { w, h } = this.viewSize(), P = this.project.paper;
+    const { w, h } = this.viewSize(), P = this.paper;
     const s = Math.min((w - 40) / P.w, (h - 40) / P.h);
     Object.assign(this.view, { tx: w / 2, ty: h / 2, scale: clamp(s, MIN_SCALE, MAX_SCALE), rot: 0 });
     this.viewChanged();
   }
   fitWidth() {
-    const { w } = this.viewSize(), P = this.project.paper;
+    const { w } = this.viewSize(), P = this.paper;
     const c = this.toPage(this.center().x, this.center().y);
     this.view.scale = clamp((w - 40) / P.w, MIN_SCALE, MAX_SCALE);
     this.view.rot = 0;
@@ -347,7 +359,7 @@ export class Editor {
 
   /** 画面座標(物理ピクセル)への変換を設定してページを描く */
   drawPageInto(ctx, { layerRange, background, decorations, paper = true }) {
-    const dpr = this.dpr, P = this.project.paper;
+    const dpr = this.dpr, P = this.paper;
     if (background) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#5a5a5a';
@@ -810,7 +822,7 @@ export class Editor {
 
   /** レイヤー全体を書き換える操作を履歴付きで行う */
   rasterOp(label, layer, fn) {
-    const { w, h } = this.project.paper;
+    const { w, h } = this.paper;
     const ctx = layer.canvas.getContext('2d');
     const copy = () => { const c = makeCanvas(w, h); c.getContext('2d').drawImage(layer.canvas, 0, 0); return c; };
     const before = copy();
@@ -894,7 +906,7 @@ export class Editor {
     const page = this.page, before = [...page.layers], beforeActive = page.activeLayerId;
     const n = page.layers.length + 1;
     const L = createLayer(opts.name || (opts.draft ? `下書き ${n}` : `レイヤー ${n}`), opts);
-    L.canvas = makeCanvas(this.project.paper.w, this.project.paper.h);
+    L.canvas = makeCanvas(this.paper.w, this.paper.h);
     L.dirty = true;
     const i = page.layers.indexOf(this.layer);
     page.layers.splice(i + 1, 0, L);
@@ -909,7 +921,7 @@ export class Editor {
     const L = createLayer(src.name + ' のコピー', {
       opacity: src.opacity, blend: src.blend, draft: src.draft,
     });
-    L.canvas = makeCanvas(this.project.paper.w, this.project.paper.h);
+    L.canvas = makeCanvas(this.paper.w, this.paper.h);
     L.canvas.getContext('2d').drawImage(src.canvas, 0, 0);
     L.dirty = true;
     page.layers.splice(page.layers.indexOf(src) + 1, 0, L);
@@ -943,7 +955,7 @@ export class Editor {
     if (i <= 0) { toast('下にレイヤーがありません'); return; }
     const lower = page.layers[i - 1];
     if (lower.locked) { toast('下のレイヤーがロックされています'); return; }
-    const { w, h } = this.project.paper;
+    const { w, h } = this.paper;
     const lctx = lower.canvas.getContext('2d');
     const before = lctx.getImageData(0, 0, w, h);
     lctx.save();
@@ -989,7 +1001,7 @@ export class Editor {
     if (!L) return;
     const sel = this.selectionPath();
     this.rasterOp(sel ? '選択範囲を消去' : 'レイヤーを消去', L, (ctx) => {
-      const { w, h } = this.project.paper;
+      const { w, h } = this.paper;
       if (sel) {
         ctx.save();
         ctx.clip(sel);
@@ -1013,9 +1025,12 @@ export class Editor {
       this.flushLive();
       await this.save();
       this.unloadPage(this.page);
+      const prevW = this.paper.w;
       this.pageIndex = i;
       this.project.currentPage = i;
       await this.loadPage(this.page);
+      this.ensureEngine();
+      if (this.paper.w !== prevW) this.fit(); // 見開きと通常ページを行き来したら全体表示し直す
       this.history.clear();
       this.selection = null;
       this.tool?.activate?.();
@@ -1054,18 +1069,184 @@ export class Editor {
   async deletePage() {
     const pages = this.project.pages;
     if (pages.length <= 1) { toast('最後のページは削除できません'); return; }
-    if (!(await confirmDialog('ページの削除', `${this.pageIndex + 1} ページ目を削除します。この操作は取り消せません。`, '削除', true))) return;
+    const label = pageLabel(pageNumbers(this.project)[this.pageIndex]);
+    if (!(await confirmDialog('ページの削除', `${label} ページ目${this.page.spread ? '(見開き)' : ''}を削除します。この操作は取り消せません。`, '削除', true))) return;
     this.tool?.cancel?.();
     this.unloadPage(this.page);
     pages.splice(this.pageIndex, 1);
     this.pageIndex = Math.min(this.pageIndex, pages.length - 1);
     this.project.currentPage = this.pageIndex;
     await this.loadPage(this.page);
+    this.ensureEngine();
+    this.fit();
     this.history.clear();
     this.selection = null;
     this.changed();
     this.ui.refreshAll();
     await this.save();
+  }
+
+  // ------------------------------------------------------------------
+  // 見開きページ
+  // 右綴じなので、見開きの右半分が若いページ(偶数)、左半分が次のページ(奇数)。
+  // ------------------------------------------------------------------
+  /** 今のページの後ろに、白紙の見開きページを追加する */
+  async addSpreadPage() {
+    const S = spreadPaper(this.project.paper);
+    if (!S) { toast('この用紙(Webtoon など)では見開きを作れません'); return; }
+    const page = createPage(this.project.paper);
+    page.spread = true;
+    applyTemplate(page, S, this.project.pageTemplate);
+    this.project.pages.splice(this.pageIndex + 1, 0, page);
+    this.changed();
+    await this.gotoPage(this.pageIndex + 1);
+    toast('見開きページを追加しました');
+  }
+
+  /** 今のページと次のページを 1 枚の見開きにする */
+  async makeSpread() {
+    const P = this.project.paper, S = spreadPaper(P);
+    if (!S) { toast('この用紙(Webtoon など)では見開きを作れません'); return; }
+    const pages = this.project.pages, i = this.pageIndex;
+    const A = pages[i], B = pages[i + 1];
+    if (A.spread) { toast('このページはすでに見開きです'); return; }
+    if (!B) { toast('次のページがありません。「見開きページを追加」を使ってください'); return; }
+    if (B.spread) { toast('次のページが見開きなので、まとめられません'); return; }
+    const [n] = pageNumbers(this.project)[i];
+    const msg = `${n} ページ(右)と ${n + 1} ページ(左)を 1 枚の見開きにします。` +
+      (n % 2 === 1 ? '\n\n※ 右綴じの本では、見開きはふつう偶数ページ(右)から始まります(例: 2-3 ページ)。このページは奇数ページです。' : '') +
+      '\n\nこの操作は取り消せません(「見開きを解除」で 2 ページに戻せます)。';
+    if (!(await confirmDialog('見開きにする', msg, '見開きにする'))) return;
+    this.busy = true;
+    try {
+      if (this.tool?.active) this.tool.confirm();
+      this.tool?.cancel?.();
+      this.flushLive();
+      await this.save();
+      await this.loadPage(B);
+      const tw = P.trim.w, spine = S.spineX;
+      const right = { x: spine, y: 0, w: S.w - spine, h: S.h }, left = { x: 0, y: 0, w: spine, h: S.h };
+      const drawHalf = (ctx, src, dx, r) => {
+        if (!src) return;
+        ctx.save();
+        ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+        ctx.drawImage(src, dx, 0);
+        ctx.restore();
+      };
+      // レイヤーは名前で対応させる(右ページのレイヤーを基準に、左ページにしか無いものは追加)
+      const used = new Set();
+      const layers = A.layers.map((LA) => {
+        const LB = B.layers.find((x) => !used.has(x) && x.name === LA.name);
+        if (LB) used.add(LB);
+        return { base: LA, a: LA, b: LB };
+      });
+      for (const LB of B.layers) if (!used.has(LB)) layers.push({ base: LB, a: null, b: LB });
+      const spreadPage = {
+        ...createPage(P),
+        spread: true,
+        panelStyle: { ...A.panelStyle },
+        maskOutside: A.maskOutside,
+        layers: [],
+        panels: [
+          ...A.panels.map((p) => ({ ...p, points: p.points.map(([x, y]) => [x + tw, y]) })),
+          ...B.panels.map((p) => ({ ...p })),
+        ],
+        items: [
+          ...A.items.map((it) => ({ ...it, x: it.x + tw, tail: it.tail ? { x: it.tail.x + tw, y: it.tail.y } : null })),
+          ...B.items.map((it) => ({ ...it })),
+        ],
+      };
+      for (const { base, a, b } of layers) {
+        const L = createLayer(base.name, { visible: base.visible, opacity: base.opacity, blend: base.blend, locked: base.locked, draft: base.draft });
+        L.canvas = makeCanvas(S.w, S.h);
+        const ctx = L.canvas.getContext('2d');
+        drawHalf(ctx, a?.canvas, tw, right);
+        drawHalf(ctx, b?.canvas, 0, left);
+        L.dirty = true;
+        if (base.id === A.activeLayerId) spreadPage.activeLayerId = L.id;
+        spreadPage.layers.push(L);
+      }
+      spreadPage.activeLayerId ||= spreadPage.layers[spreadPage.layers.length - 1].id;
+      this.unloadPage(A);
+      this.unloadPage(B);
+      pages.splice(i, 2, spreadPage);
+      this.ensureEngine();
+      this.fit();
+      this.history.clear();
+      this.selection = null;
+      this.pageThumbDirty = true;
+      this.changed();
+      this.ui.refreshAll();
+      await this.save();
+      toast('見開きにしました。真ん中のピンクの線がノド(綴じ目)です');
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** 見開きを 2 ページに戻す(ノドで左右に切り分ける) */
+  async splitSpread() {
+    const page = this.page;
+    if (!page.spread) { toast('このページは見開きではありません'); return; }
+    const P = this.project.paper, S = this.paper, tw = P.trim.w, spine = S.spineX;
+    const [n] = pageNumbers(this.project)[this.pageIndex];
+    if (!(await confirmDialog('見開きを解除', `${n}-${n + 1} ページの見開きを、ノド(真ん中の線)で左右の 2 ページに分けます。ノドをまたいでいる絵やコマは、それぞれのページで途中から切れます。`, '解除する'))) return;
+    this.busy = true;
+    try {
+      if (this.tool?.active) this.tool.confirm();
+      this.tool?.cancel?.();
+      this.flushLive();
+      await this.save();
+      const make = (keepRight) => {
+        const pg = { ...createPage(P), panelStyle: { ...page.panelStyle }, maskOutside: page.maskOutside, layers: [], panels: [], items: [] };
+        const dx = keepRight ? -tw : 0;
+        const inHalf = (x) => (keepRight ? x >= spine : x < spine);
+        for (const L0 of page.layers) {
+          const L = createLayer(L0.name, { visible: L0.visible, opacity: L0.opacity, blend: L0.blend, locked: L0.locked, draft: L0.draft });
+          L.canvas = makeCanvas(P.w, P.h);
+          const ctx = L.canvas.getContext('2d');
+          ctx.save();
+          ctx.beginPath();
+          if (keepRight) ctx.rect(spine - tw, 0, P.w - (spine - tw), P.h); else ctx.rect(0, 0, spine, P.h);
+          ctx.clip();
+          ctx.drawImage(L0.canvas, dx, 0);
+          ctx.restore();
+          L.dirty = true;
+          if (L0.id === page.activeLayerId) pg.activeLayerId = L.id;
+          pg.layers.push(L);
+        }
+        for (const p of page.panels) {
+          const cx = p.points.reduce((s2, q) => s2 + q[0], 0) / p.points.length;
+          if (inHalf(cx)) pg.panels.push({ ...p, id: uid(), points: p.points.map(([x, y]) => [x + dx, y]) });
+        }
+        for (const it of page.items) {
+          if (inHalf(it.x + it.w / 2)) pg.items.push({ ...it, id: uid(), x: it.x + dx, tail: it.tail ? { x: it.tail.x + dx, y: it.tail.y } : null });
+        }
+        return pg;
+      };
+      const rightPage = make(true), leftPage = make(false);
+      this.unloadPage(page);
+      this.project.pages.splice(this.pageIndex, 1, rightPage, leftPage);
+      // 右ページ(若い番号)を開いた状態にする。左ページは保存してから閉じる
+      for (const L of leftPage.layers) {
+        const blob = await canvasToBlob(L.canvas);
+        await storage.putBlob(blobKey(this.project.id, L.id), blob);
+        L.dirty = false;
+      }
+      leftPage.thumb = this.makeThumb(leftPage);
+      this.unloadPage(leftPage);
+      this.ensureEngine();
+      this.fit();
+      this.history.clear();
+      this.selection = null;
+      this.pageThumbDirty = true;
+      this.changed();
+      this.ui.refreshAll();
+      await this.save();
+      toast('見開きを解除して 2 ページに分けました');
+    } finally {
+      this.busy = false;
+    }
   }
 
   movePage(dir) {
@@ -1082,7 +1263,7 @@ export class Editor {
   // 保存
   // ------------------------------------------------------------------
   makeThumb(page = this.page, height = 220) {
-    const { w, h } = this.project.paper;
+    const { w, h } = paperOf(this.project, page);
     const s = height / h;
     const c = makeCanvas(Math.max(24, w * s), height);
     renderPageTo(c, this.project, page, { includeDraft: false });
@@ -1260,7 +1441,7 @@ export class Editor {
       clear: () => this.clearLayer(),
       deselect: () => this.setSelection(null),
       'select-all': () => {
-        const { w, h } = this.project.paper, path = new Path2D();
+        const { w, h } = this.paper, path = new Path2D();
         path.rect(0, 0, w, h);
         this.setSelection({ path, bounds: { x: 0, y: 0, w, h } });
       },
@@ -1296,6 +1477,10 @@ export class Editor {
       'page-next': () => this.gotoPage(this.pageIndex + 1),
       'page-move-left': () => this.movePage(-1),
       'page-move-right': () => this.movePage(1),
+      'spread-make': () => this.makeSpread(),
+      'spread-add': () => this.addSpreadPage(),
+      'spread-split': () => this.splitSpread(),
+      'spread-toggle': () => (this.page.spread ? this.splitSpread() : this.makeSpread()),
       fit: () => this.fit(),
       'fit-width': () => this.fitWidth(),
       'zoom-100': () => this.zoomActual(),
