@@ -348,6 +348,12 @@ export function createTextTools(ed) {
         ui.control({ label: '文字の色', type: 'color' }, it.color, live('文字の色', (v) => { it.color = v; })),
         ui.control({ label: 'フキダシの形', type: 'select', string: true, options: SHAPES }, it.shape, live('フキダシの形', (v) => { it.shape = v; refit(); })),
       );
+      if (it.shape === 'spike') {
+        // トゲの出方は乱数で決まるので、気に入るまで振り直せるようにする
+        box.append(h('button', {
+          class: 'btn small', onclick: () => ed.live('トゲの形を変える', () => { it.seed = Math.random().toString(36).slice(2, 7); }),
+        }, 'トゲの形を変える'));
+      }
       if (it.shape !== 'none') {
         box.append(
           ui.control({ label: '線の太さ', type: 'range', min: 0, max: 2, step: 0.05, fmt: (v) => `${(+v).toFixed(2)}mm` }, +pxToMm(paper, it.stroke).toFixed(2), live('線の太さ', (v) => { it.stroke = mmToPx(paper, v); })),
