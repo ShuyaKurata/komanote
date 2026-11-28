@@ -245,19 +245,43 @@ export async function exportDialog(ed) {
 /** できたファイルを保存/共有する(iPad では共有シートから「ファイルに保存」や他アプリへ送れる) */
 export async function deliver(file) {
   const canShare = navigator.canShare?.({ files: [file] });
+  const canPick = typeof window.showSaveFilePicker === 'function';
   const size = file.size > 1024 * 1024 ? `${(file.size / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(file.size / 1024)}KB`;
   const v = await showDialog({
     title: '書き出し完了',
-    body: `${file.name}(${size})`,
+    body: h('div', {},
+      h('p', {}, `${file.name}(${size})`),
+      canPick
+        ? h('p', { class: 'hint' }, '「保存先を選んで保存」で同じ名前のファイルを選ぶと、上書きできます。')
+        : h('p', { class: 'hint' }, 'iPad・iPhone の Safari では、同じ名前のファイルがあると「名前 2」のような別名で保存されます(Web アプリからは上書きできない仕様です)。古いファイルは「ファイル」アプリで削除してください。')),
     buttons: [
       { label: '閉じる', value: null },
-      ...(canShare ? [{ label: '共有・ファイルに保存', value: 'share' }] : []),
-      { label: 'ダウンロード', value: 'download', primary: true },
+      ...(canShare && !canPick ? [{ label: '共有・ファイルに保存', value: 'share', primary: true }] : []),
+      ...(canPick ? [{ label: 'ダウンロード', value: 'download' }, { label: '保存先を選んで保存', value: 'pick', primary: true }]
+        : [{ label: 'ダウンロード', value: 'download', primary: !canShare }]),
     ],
   });
   if (v === 'download') { downloadBlob(file, file.name); return true; }
   if (v === 'share') {
     try { await navigator.share({ files: [file], title: file.name }); return true; } catch { return false; /* キャンセル */ }
+  }
+  if (v === 'pick') {
+    // OS の保存画面。同じ名前を選ぶと「置き換えますか?」と聞かれ、上書きできる
+    try {
+      const ext = (file.name.match(/\.[^.]+$/) || [''])[0];
+      const handle = await window.showSaveFilePicker({
+        suggestedName: file.name,
+        types: ext ? [{ description: ext.slice(1).toUpperCase() + ' ファイル', accept: { [file.type || 'application/octet-stream']: [ext] } }] : undefined,
+      });
+      const w = await handle.createWritable();
+      await w.write(file);
+      await w.close();
+      toast(`「${handle.name}」に保存しました`);
+      return true;
+    } catch (err) {
+      if (err?.name !== 'AbortError') toast('保存できませんでした: ' + err.message, 4000);
+      return false;
+    }
   }
   return false;
 }

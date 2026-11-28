@@ -230,13 +230,37 @@ export function balloonPath(item) {
     }
     p.closePath();
   } else if (shape === 'spike') {
-    const rnd = hashSeed(item.id);
-    const n = Math.max(14, Math.round((Math.PI * (rx + ry)) / (Math.min(w, h) * 0.18)));
-    for (let i = 0; i < n * 2; i++) {
-      const a = (i / (n * 2)) * Math.PI * 2;
-      const k = i % 2 === 0 ? 1.08 + rnd() * 0.22 : 0.8 + rnd() * 0.06;
-      const px = cx + Math.cos(a) * rx * k, py = cy + Math.sin(a) * ry * k;
-      if (i) p.lineTo(px, py); else p.moveTo(px, py);
+    // 叫びのフキダシ: とがった先端どうしを「内側にへこんだ曲線」でつなぐ。
+    // 先端の位置・高さを不規則にし、ところどころに小さな切れ込みを入れて手描きらしくする。
+    const rnd = hashSeed(item.id + (item.seed || ''));
+    const per = Math.PI * (rx + ry);
+    const n = Math.max(8, Math.min(16, Math.round(per / (Math.min(w, h) * 0.34))));
+    const step = (Math.PI * 2) / n;
+    const pt = (a, k) => [cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k];
+    const tips = [];
+    const a0 = rnd() * step;
+    for (let i = 0; i < n; i++) tips.push({ a: a0 + i * step + (rnd() - 0.5) * step * 0.45, k: 0.94 + rnd() * 0.16 });
+    // へこんだ曲線: 制御点を 2 点の真ん中より内側に置く(深さと向きを少しずつ変える)
+    const arc = (a1, k1, a2, k2, depth) => {
+      const am = (a1 + a2) / 2 + (rnd() - 0.5) * (a2 - a1) * 0.3;
+      // 曲線の真ん中が中心から depth(楕円の半径に対する割合)の位置を通るように制御点を決める
+      const chordMid = ((k1 + k2) / 2) * Math.cos((a2 - a1) / 2);
+      const [qx, qy] = pt(am, 2 * depth - chordMid);
+      const [ex, ey] = pt(a2, k2);
+      p.quadraticCurveTo(qx, qy, ex, ey);
+    };
+    const [sx, sy] = pt(tips[0].a, tips[0].k);
+    p.moveTo(sx, sy);
+    for (let i = 0; i < n; i++) {
+      const t1 = tips[i], t2 = i + 1 < n ? tips[i + 1] : { a: tips[0].a + Math.PI * 2, k: tips[0].k };
+      if (rnd() < 0.35) {
+        // 小さな切れ込み(低い先端)をはさむ
+        const am = t1.a + (t2.a - t1.a) * (0.35 + rnd() * 0.3), km = 0.84 + rnd() * 0.05;
+        arc(t1.a, t1.k, am, km, 0.86 + rnd() * 0.04);
+        arc(am, km, t2.a, t2.k, 0.86 + rnd() * 0.04);
+      } else {
+        arc(t1.a, t1.k, t2.a, t2.k, 0.8 + rnd() * 0.06);
+      }
     }
     p.closePath();
   }
